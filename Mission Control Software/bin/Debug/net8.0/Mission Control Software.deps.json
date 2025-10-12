@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "Mission Control Software/1.0.0": {
+        "runtime": {
+          "Mission Control Software.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Mission Control Software/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

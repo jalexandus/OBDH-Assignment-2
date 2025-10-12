@@ -1,0 +1,20 @@
+{
+  "commands": [
+    {
+      "cmd": "payload-mode",
+      "action": "set",
+      "target": "payload",
+      "value": 5,
+      "expectResponse": false,
+      "requestId": "cmd-001"
+    },
+    {
+      "cmd": "payload-mode",
+      "action": "get",
+      "target": "payload",
+      "value": 5,
+      "expectResponse": true,
+      "requestId": "cmd-001"
+    }
+  ]
+}
