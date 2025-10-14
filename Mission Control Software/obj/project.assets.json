@@ -4,6 +4,19 @@
     "net9.0": {
       "OutParser/1.1.1": {
         "type": "package"
+      },
+      "Common/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v9.0",
+        "dependencies": {
+          "OutParser": "1.1.1"
+        },
+        "compile": {
+          "bin/placeholder/Common.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Common.dll": {}
+        }
       }
     }
   },
@@ -20,10 +33,16 @@
         "outparser.1.1.1.nupkg.sha512",
         "outparser.nuspec"
       ]
+    },
+    "Common/1.0.0": {
+      "type": "project",
+      "path": "../Main project/Common/Common.csproj",
+      "msbuildProject": "../Main project/Common/Common.csproj"
     }
   },
   "projectFileDependencyGroups": {
     "net9.0": [
+      "Common >= 1.0.0",
       "OutParser >= 1.1.1"
     ]
   },
@@ -58,7 +77,11 @@
       "frameworks": {
         "net9.0": {
           "targetAlias": "net9.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Main project\\Common\\Common.csproj": {
+              "projectPath": "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Main project\\Common\\Common.csproj"
+            }
+          }
         }
       },
       "warningProperties": {

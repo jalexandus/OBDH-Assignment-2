@@ -1,11 +1,49 @@
 {
   "version": 3,
   "targets": {
-    "net9.0": {}
+    "net9.0": {
+      "OutParser/1.1.1": {
+        "type": "package"
+      },
+      "Common/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v9.0",
+        "dependencies": {
+          "OutParser": "1.1.1"
+        },
+        "compile": {
+          "bin/placeholder/Common.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Common.dll": {}
+        }
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "OutParser/1.1.1": {
+      "sha512": "OeeVzLCYiJ+QIh+ZyhRHBJr76yDd67wTvgGlhUNHt1nyp3e3w2e5DDsz9JP2+U83PTRaK3pGlzvn7MpNwDeRSA==",
+      "type": "package",
+      "path": "outparser/1.1.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/cs/OutParser.Generator.dll",
+        "docs/README.md",
+        "outparser.1.1.1.nupkg.sha512",
+        "outparser.nuspec"
+      ]
+    },
+    "Common/1.0.0": {
+      "type": "project",
+      "path": "../Main project/Common/Common.csproj",
+      "msbuildProject": "../Main project/Common/Common.csproj"
+    }
+  },
   "projectFileDependencyGroups": {
-    "net9.0": []
+    "net9.0": [
+      "Common >= 1.0.0"
+    ]
   },
   "packageFolders": {
     "C:\\Users\\jonat\\.nuget\\packages\\": {},
@@ -38,7 +76,11 @@
       "frameworks": {
         "net9.0": {
           "targetAlias": "net9.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Main project\\Common\\Common.csproj": {
+              "projectPath": "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Main project\\Common\\Common.csproj"
+            }
+          }
         }
       },
       "warningProperties": {

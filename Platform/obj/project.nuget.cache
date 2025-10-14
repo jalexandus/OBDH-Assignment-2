@@ -1,8 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "FMEYeAR6hhU=",
+  "dgSpecHash": "XQGIySQM04Q=",
   "success": true,
   "projectFilePath": "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Platform\\Platform.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "C:\\Users\\jonat\\.nuget\\packages\\outparser\\1.1.1\\outparser.1.1.1.nupkg.sha512"
+  ],
   "logs": []
 }

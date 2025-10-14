@@ -5,11 +5,10 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using static Mission_Control_Software.MCSCLient;
 
-namespace Mission_Control_Software
+namespace Common
 {
-    internal class Packet
+    public class Packet
     {
         public ushort SequenceControl;      // 2 bytes
         public byte ServiceType;            // 1 byte

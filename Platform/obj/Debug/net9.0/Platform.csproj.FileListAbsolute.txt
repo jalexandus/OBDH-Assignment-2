@@ -13,3 +13,7 @@ C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\refint\P
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\Platform.pdb
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\Platform.genruntimeconfig.cache
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\ref\Platform.dll
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\bin\Debug\net9.0\Common.dll
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\bin\Debug\net9.0\Common.pdb
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\Platform.csproj.AssemblyReference.cache
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Platform\obj\Debug\net9.0\Platform.csproj.Up2Date

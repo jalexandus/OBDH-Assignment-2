@@ -3,7 +3,9 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
+using Common;
 
 namespace Program;
 
@@ -13,6 +15,7 @@ internal class PlatformOBC
     {
         const string configFilePath = "config.txt";
         string serverIpAddressString;
+        ushort currentSequenceCount = 0;
 
 
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
@@ -26,7 +29,7 @@ internal class PlatformOBC
         // Server IP address is the localipaddress
         IPAddress serverIpAddress = localhost.AddressList[0];
 
-        Console.WriteLine("Client IP address: " + serverIpAddress.ToString()); // print the server ip address
+        Console.WriteLine($"Client IP address: {serverIpAddress.ToString()}"); // print the server ip address
 
         IPEndPoint ipEndPoint = new(serverIpAddress, 11_000);
 
@@ -47,24 +50,22 @@ internal class PlatformOBC
         {
             // Receive message.
             var buffer = new byte[1_024];
-            var received = await handler.ReceiveAsync(buffer, SocketFlags.None);
-            var response = Encoding.UTF8.GetString(buffer, 0, received);
+            await handler.ReceiveAsync(buffer, SocketFlags.None);
+            Packet response = new Packet(buffer);
 
-            var eom = "<|EOM|>";
-            if (response.IndexOf(eom) > -1 /* is end of message */)
+            if (response.SequenceControl == currentSequenceCount)
             {
-                Console.WriteLine($"Socket server received message: \"{response.Replace(eom, "")}\"");
-
-                var ackMessage = "<|ACK|>";
-                var echoBytes = Encoding.UTF8.GetBytes(ackMessage);
-                await handler.SendAsync(echoBytes, 0);
-                Console.WriteLine($"Socket server sent acknowledgment: \"{ackMessage}\"");
-
-                break;
+                currentSequenceCount++;
+                Console.WriteLine($"Socket server received message: \"{response.ToString()}\"");
+                byte[] ackBytes = AcknowledgePacket();
+                await handler.SendAsync(ackBytes, 0);
+                Console.WriteLine($"Socket server sent acknowledgment");
             }
-            // Sample output:
-            //    Socket server received message: "Hi friends 👋!"
-            //    Socket server sent acknowledgment: "<|ACK|>"
+            else if(response.SequenceControl > currentSequenceCount)
+            {
+                // IMPLEMENT: Ask to send previous packet
+                Console.WriteLine($"Sequence count is out of order: expected {currentSequenceCount}, recieved {response.SequenceControl}");
+            }
         }
 
         // Exit
@@ -72,6 +73,12 @@ internal class PlatformOBC
         Console.ReadKey();
         return 0;
 
+        byte[] AcknowledgePacket()
+        {
+            Packet ack = new Packet(currentSequenceCount, 1, 1, Array.Empty<byte>() );
+            return ack.Serialize();
+        }
     }
+
 }
 

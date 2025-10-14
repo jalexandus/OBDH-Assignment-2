@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using OutParsing;
 
-namespace Mission_Control_Software
+namespace Common
 {
     public class MCSCommand
     {

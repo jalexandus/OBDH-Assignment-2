@@ -16,3 +16,7 @@ C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net9.0\Mission Control Software.pdb
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net9.0\Mission Control Software.genruntimeconfig.cache
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net9.0\ref\Mission Control Software.dll
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\bin\Debug\net9.0\Common.dll
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\bin\Debug\net9.0\Common.pdb
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net9.0\Mission Control Software.csproj.AssemblyReference.cache
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net9.0\Mission .20109A87.Up2Date
