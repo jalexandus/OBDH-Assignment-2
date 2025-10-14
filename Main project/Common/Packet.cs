@@ -10,6 +10,7 @@ namespace Common
 {
     public class Packet
     {
+        public long TimeStamp;              // 8 bytes
         public ushort SequenceControl;      // 2 bytes
         public byte ServiceType;            // 1 byte
         public byte ServiceSubtype;         // 1 byte
@@ -19,16 +20,17 @@ namespace Common
         private int totalNumberOfBytes;
 
         // ----------------------------------------------------------
-        // Constructor 1: Create packet by filling each field manually
+        // Constructor 1: Create packet by filling each field
         // ----------------------------------------------------------
-        public Packet(ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
+        public Packet(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
         {
+            TimeStamp = timeStamp;
             SequenceControl = sequenceControl;
             ServiceType = serviceType;
             ServiceSubtype = serviceSubtype;
             Nbytes = (ushort)(data != null ? data.Length : 0);
             Data = data ?? Array.Empty<byte>();
-            totalNumberOfBytes = 2 + 1 + 1 + 2 + Nbytes; // header + data
+            totalNumberOfBytes = 8 + 2 + 1 + 1 + 2 + Nbytes; // header + data
         }
 
         // ----------------------------------------------------------
@@ -40,6 +42,12 @@ namespace Common
                 throw new ArgumentException("Invalid packet length");
 
             int index = 0; // index of read byte
+
+            // Timestamp  (uint64, big-endian)
+            byte[] timeBytes = { raw[index+7], raw[index + 6], raw[index + 5], raw[index + 4], raw[index + 3], raw[index + 2], raw[index + 1], raw[index] };
+            TimeStamp =  BitConverter.ToInt64(timeBytes, 0);
+
+            index += 8;
 
             // Sequence Control (ushort, big-endian)
             byte[] seqBytes = { raw[index + 1], raw[index] };
@@ -77,8 +85,13 @@ namespace Common
             byte[] buffer = new byte[totalNumberOfBytes];
             int index = 0;
 
+            // Timestamp
+            long timeBE = (long) IPAddress.HostToNetworkOrder(TimeStamp);
+            Array.Copy(BitConverter.GetBytes(timeBE), 0, buffer, index, 8);
+            index += 8;
+
             // Sequence Control
-            ushort seqBE = (ushort)IPAddress.HostToNetworkOrder((short)SequenceControl);
+            ushort seqBE = (ushort)IPAddress.HostToNetworkOrder((ushort)SequenceControl);
             Array.Copy(BitConverter.GetBytes(seqBE), 0, buffer, index, 2);
             index += 2;
 
@@ -87,7 +100,7 @@ namespace Common
             buffer[index++] = ServiceSubtype;
 
             // nBytes
-            ushort lenBE = (ushort)IPAddress.HostToNetworkOrder((short)Nbytes);
+            ushort lenBE = (ushort)IPAddress.HostToNetworkOrder((ushort)Nbytes);
             Array.Copy(BitConverter.GetBytes(lenBE), 0, buffer, index, 2);
             index += 2;
 
@@ -99,11 +112,12 @@ namespace Common
         }
 
         // ----------------------------------------------------------
-        // Printi packet info
+        // Print packet info
         // ----------------------------------------------------------
         public override string ToString()
         {
-            return $"SeqCtrl={SequenceControl}, Service={ServiceType}, Subservice={ServiceSubtype}, Len={Nbytes}, Total={totalNumberOfBytes}";
+            DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(TimeStamp);
+            return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, Service={ServiceType}, Subservice={ServiceSubtype}, Databytes={Nbytes}, Total={totalNumberOfBytes}";
         }
     }
 

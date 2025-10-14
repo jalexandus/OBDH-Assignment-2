@@ -15,7 +15,8 @@ internal class PlatformOBC
     {
         const string configFilePath = "config.txt";
         string serverIpAddressString;
-        ushort currentSequenceCount = 0;
+        ushort recieveSequenceCount = 0;
+        ushort transmitSequenceCount = 0;
 
 
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
@@ -29,12 +30,11 @@ internal class PlatformOBC
         // Server IP address is the localipaddress
         IPAddress serverIpAddress = localhost.AddressList[0];
 
-        Console.WriteLine($"Client IP address: {serverIpAddress.ToString()}"); // print the server ip address
+        Console.WriteLine($"Server IP address: {serverIpAddress.ToString()}"); // print the server ip address
 
         IPEndPoint ipEndPoint = new(serverIpAddress, 11_000);
 
         // Start server
-
 
         // Command input loop
         using Socket listener = new(
@@ -50,21 +50,30 @@ internal class PlatformOBC
         {
             // Receive message.
             var buffer = new byte[1_024];
-            await handler.ReceiveAsync(buffer, SocketFlags.None);
+            await handler.ReceiveAsync(buffer, SocketFlags.None); 
             Packet response = new Packet(buffer);
 
-            if (response.SequenceControl == currentSequenceCount)
+            if (response.SequenceControl == recieveSequenceCount || true)
             {
-                currentSequenceCount++;
-                Console.WriteLine($"Socket server received message: \"{response.ToString()}\"");
-                byte[] ackBytes = AcknowledgePacket();
-                await handler.SendAsync(ackBytes, 0);
-                Console.WriteLine($"Socket server sent acknowledgment");
+                recieveSequenceCount++;
+                Console.WriteLine($"Received command: ");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(response.ToString());
+                Console.ForegroundColor = ConsoleColor.White;
+
+                Packet ack = AcknowledgePacket();
+                await handler.SendAsync(ack.Serialize(), 0);
+
+                Console.WriteLine($"Sent acknowledgment: ");
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine(ack.ToString());
+                Console.ForegroundColor = ConsoleColor.White;
             }
-            else if(response.SequenceControl > currentSequenceCount)
+            else if(response.SequenceControl >= recieveSequenceCount + 1) // +1 to check overflow
             {
+                // This means we missed a packed from the client
                 // IMPLEMENT: Ask to send previous packet
-                Console.WriteLine($"Sequence count is out of order: expected {currentSequenceCount}, recieved {response.SequenceControl}");
+                Console.WriteLine($"Sequence count is out of order: expected {recieveSequenceCount}, recieved {response.SequenceControl}");
             }
         }
 
@@ -73,10 +82,12 @@ internal class PlatformOBC
         Console.ReadKey();
         return 0;
 
-        byte[] AcknowledgePacket()
+        Packet AcknowledgePacket()
         {
-            Packet ack = new Packet(currentSequenceCount, 1, 1, Array.Empty<byte>() );
-            return ack.Serialize();
+            DateTime utcTime = DateTime.UtcNow;
+            long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+            Console.WriteLine(transmitSequenceCount.ToString());
+            return new Packet(unixSeconds, transmitSequenceCount++, 1, 1, Array.Empty<byte>() );
         }
     }
 
