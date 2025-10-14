@@ -13,3 +13,6 @@ C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net8.0\Mission Control Software.pdb
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net8.0\Mission Control Software.genruntimeconfig.cache
 C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net8.0\ref\Mission Control Software.dll
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net8.0\Mission_Control_Software.Properties.Resources.resources
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\obj\Debug\net8.0\Mission Control Software.csproj.GenerateResource.cache
+C:\Users\jonat\source\repos\OBDH-Assignment-2\Mission Control Software\bin\Debug\net8.0\config.txt

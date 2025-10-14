@@ -1,20 +1,19 @@
 {
   "commands": [
     {
-      "cmd": "payload-mode",
-      "action": "set",
       "target": "payload",
-      "value": 5,
-      "expectResponse": false,
-      "requestId": "cmd-001"
+      "cmd": "mode",
+      "action": "set",      
+      "expectResponse": true,
+      "serviceType": 3,
+      "subType": 1
     },
     {
-      "cmd": "payload-mode",
-      "action": "get",
-      "target": "payload",
-      "value": 5,
+      "target": "obc",
+      "cmd": "time",
+      "action": "get",      
       "expectResponse": true,
       "requestId": "cmd-001"
-    }
+    },
   ]
 }

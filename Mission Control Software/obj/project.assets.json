@@ -1,11 +1,31 @@
 {
   "version": 3,
   "targets": {
-    "net8.0": {}
+    "net9.0": {
+      "OutParser/1.1.1": {
+        "type": "package"
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "OutParser/1.1.1": {
+      "sha512": "OeeVzLCYiJ+QIh+ZyhRHBJr76yDd67wTvgGlhUNHt1nyp3e3w2e5DDsz9JP2+U83PTRaK3pGlzvn7MpNwDeRSA==",
+      "type": "package",
+      "path": "outparser/1.1.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/cs/OutParser.Generator.dll",
+        "docs/README.md",
+        "outparser.1.1.1.nupkg.sha512",
+        "outparser.nuspec"
+      ]
+    }
+  },
   "projectFileDependencyGroups": {
-    "net8.0": []
+    "net9.0": [
+      "OutParser >= 1.1.1"
+    ]
   },
   "packageFolders": {
     "C:\\Users\\jonat\\.nuget\\packages\\": {},
@@ -29,15 +49,15 @@
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
-        "net8.0"
+        "net9.0"
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
-        "net8.0": {
-          "targetAlias": "net8.0",
+        "net9.0": {
+          "targetAlias": "net9.0",
           "projectReferences": {}
         }
       },
@@ -54,8 +74,14 @@
       "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
-      "net8.0": {
-        "targetAlias": "net8.0",
+      "net9.0": {
+        "targetAlias": "net9.0",
+        "dependencies": {
+          "OutParser": {
+            "target": "Package",
+            "version": "[1.1.1, )"
+          }
+        },
         "imports": [
           "net461",
           "net462",
