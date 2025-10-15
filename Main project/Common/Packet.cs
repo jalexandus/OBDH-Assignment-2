@@ -19,6 +19,12 @@ namespace Common
 
         private int totalNumberOfBytes;
 
+        // __________________________________________________________________________
+        // | Timestamp | Sequence | Service | Subservice | NumberOfBytes |   Data   |
+        // --------------------------------------------------------------------------
+        // |  8 bytes  |  2 bytes | 1 byte  |   1 byte   |    2 bytes    |  N bytes |
+        // |    0-1
+
         // ----------------------------------------------------------
         // Constructor 1: Create packet by filling each field
         // ----------------------------------------------------------
@@ -51,7 +57,7 @@ namespace Common
 
             // Sequence Control (ushort, big-endian)
             byte[] seqBytes = { raw[index + 1], raw[index] };
-            SequenceControl = BitConverter.ToUInt16(seqBytes, 0);
+            SequenceControl = BitConverter.ToUInt16(seqBytes);
             index += 2;
 
             // Service Type and Subtype
@@ -60,7 +66,7 @@ namespace Common
 
             // nBytes (ushort, big-endian)
             byte[] lenBytes = { raw[index + 1], raw[index] };
-            Nbytes = BitConverter.ToUInt16(lenBytes, 0);
+            Nbytes = BitConverter.ToUInt16(lenBytes);
             index += 2;
 
             // Data
