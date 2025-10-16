@@ -23,8 +23,8 @@ internal class MCSCLient
         ushort recieveSequenceCount = 0;
         ushort transmitSequenceCount = 0;
 
-        BlockingCollection<Packet> OutgoingQueue = new BlockingCollection<Packet>(new ConcurrentQueue<Packet>(), 100); // Maximum 100 command packets queue
-        BlockingCollection<Packet> IncomingQueue = new BlockingCollection<Packet>(new ConcurrentQueue<Packet>(), 100); // Maximum 100 recieved telemetry packets in queue
+        BlockingCollection<Request> OutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+        BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
 
         
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
@@ -137,11 +137,11 @@ internal class MCSCLient
                 while (!cancelToken.IsCancellationRequested)
                 {
                     // Send next packet in queue
-                    Packet nextPacket = OutgoingQueue.Take(cancelToken);
-                    byte[] messageBytes = nextPacket.Serialize();
+                    Request nextRequest = OutgoingQueue.Take(cancelToken);
+                    byte[] messageBytes = nextRequest.Serialize();
                     await client.SendAsync(messageBytes, SocketFlags.None);
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[TX]: {nextPacket.ToString()}");
+                    Console.WriteLine($"[TX]: {nextRequest.ToString()}");
                     Console.ForegroundColor = ConsoleColor.White;
                 } 
             }, cancelToken);
@@ -153,7 +153,7 @@ internal class MCSCLient
                     // Receive telemetry.
                     var buffer = new byte[1_024];
                     await client.ReceiveAsync(buffer, SocketFlags.None);
-                    Packet telemetry = new Packet(buffer);
+                    Report telemetry = new Report(buffer);
 
                     recieveSequenceCount++;
                     Console.ForegroundColor = ConsoleColor.Blue;
@@ -180,7 +180,7 @@ internal class MCSCLient
 
             // Encode message data
             byte[] data = Encoding.UTF8.GetBytes(message);
-            Packet TX_Pckt = new Packet(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
+            Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
             OutgoingQueue.Add(TX_Pckt);
         }
         

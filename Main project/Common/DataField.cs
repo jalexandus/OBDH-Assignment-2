@@ -2,13 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Common
 {
-    public class Packet
+    public class DataField
     {
         public long TimeStamp;              // 8 bytes
         public ushort SequenceControl;      // 2 bytes
@@ -18,7 +17,6 @@ namespace Common
         public byte[] Data;                 // N bytes (payload)
 
         private int totalNumberOfBytes;
-
         // ______________________________________________________________________________
         // | Timestamp | Sequence | Service | Subservice | NumberOfBytes |     Data     |
         // ------------------------------------------------------------------------------
@@ -29,7 +27,7 @@ namespace Common
         // ----------------------------------------------------------
         //    Constructor 1: Create packet by filling each field
         // ----------------------------------------------------------
-        public Packet(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
+        public DataField(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
         {
             TimeStamp = timeStamp;
             SequenceControl = sequenceControl;
@@ -43,7 +41,7 @@ namespace Common
         // ----------------------------------------------------------
         // Constructor 2: Create packet by deserializing a byte array
         // ----------------------------------------------------------
-        public Packet(byte[] raw)
+        public DataField(byte[] raw)
         {
             if (raw == null || raw.Length < 6)
                 throw new ArgumentException("Invalid packet length");
@@ -51,8 +49,8 @@ namespace Common
             int index = 0; // index of read byte
 
             // Timestamp  (uint64, big-endian)
-            byte[] timeBytes = { raw[index+7], raw[index + 6], raw[index + 5], raw[index + 4], raw[index + 3], raw[index + 2], raw[index + 1], raw[index] };
-            TimeStamp =  BitConverter.ToInt64(timeBytes, 0);
+            byte[] timeBytes = { raw[index + 7], raw[index + 6], raw[index + 5], raw[index + 4], raw[index + 3], raw[index + 2], raw[index + 1], raw[index] };
+            TimeStamp = BitConverter.ToInt64(timeBytes, 0);
 
             index += 8;
 
@@ -90,9 +88,9 @@ namespace Common
         {
             byte[] buffer = new byte[totalNumberOfBytes];
             int index = 0;
-             
+
             // Timestamp : byte 0 - 7
-            long timeBE = (long) IPAddress.HostToNetworkOrder(TimeStamp);
+            long timeBE = (long)IPAddress.HostToNetworkOrder(TimeStamp);
             Array.Copy(BitConverter.GetBytes(timeBE), 0, buffer, index, 8);
             index += 8;
 
@@ -125,5 +123,4 @@ namespace Common
             return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, Service={ServiceType}, Subservice={ServiceSubtype}, Databytes={Nbytes}, Total={totalNumberOfBytes}";
         }
     }
-
 }
