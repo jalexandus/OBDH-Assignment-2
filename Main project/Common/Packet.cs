@@ -19,14 +19,15 @@ namespace Common
 
         private int totalNumberOfBytes;
 
-        // __________________________________________________________________________
-        // | Timestamp | Sequence | Service | Subservice | NumberOfBytes |   Data   |
-        // --------------------------------------------------------------------------
-        // |  8 bytes  |  2 bytes | 1 byte  |   1 byte   |    2 bytes    |  N bytes |
-        // |    0-1
+        // ______________________________________________________________________________
+        // | Timestamp | Sequence | Service | Subservice | NumberOfBytes |     Data     |
+        // ------------------------------------------------------------------------------
+        // |  8 bytes  |  2 bytes | 1 byte  |   1 byte   |    2 bytes    |    N bytes   |
+        // |   0 - 7   |   8 - 9  |   10    |     11     |    12 - 13    |  14 - 14+N-1 | 
+        // |    Unix   |  
 
         // ----------------------------------------------------------
-        // Constructor 1: Create packet by filling each field
+        //    Constructor 1: Create packet by filling each field
         // ----------------------------------------------------------
         public Packet(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
         {
@@ -65,8 +66,7 @@ namespace Common
             ServiceSubtype = raw[index++];
 
             // nBytes (ushort, big-endian)
-            byte[] lenBytes = { raw[index + 1], raw[index] };
-            Nbytes = BitConverter.ToUInt16(lenBytes);
+            Nbytes = (ushort)((raw[index] << 8) | raw[index + 1]);
             index += 2;
 
             // Data
@@ -90,25 +90,24 @@ namespace Common
         {
             byte[] buffer = new byte[totalNumberOfBytes];
             int index = 0;
-
-            // Timestamp
+             
+            // Timestamp : byte 0 - 7
             long timeBE = (long) IPAddress.HostToNetworkOrder(TimeStamp);
             Array.Copy(BitConverter.GetBytes(timeBE), 0, buffer, index, 8);
             index += 8;
 
-            // Sequence Control
-            ushort seqBE = (ushort)IPAddress.HostToNetworkOrder((ushort)SequenceControl);
+            // Sequence Control : byte 8 - 9
+            ushort seqBE = (ushort)IPAddress.HostToNetworkOrder(SequenceControl);
             Array.Copy(BitConverter.GetBytes(seqBE), 0, buffer, index, 2);
             index += 2;
 
-            // Service Type and Subtype
-            buffer[index++] = ServiceType;
-            buffer[index++] = ServiceSubtype;
+            // Service Type and Subtype 
+            buffer[index++] = ServiceType;    // : byte 10 
+            buffer[index++] = ServiceSubtype; // : byte 11
 
-            // nBytes
-            ushort lenBE = (ushort)IPAddress.HostToNetworkOrder((ushort)Nbytes);
-            Array.Copy(BitConverter.GetBytes(lenBE), 0, buffer, index, 2);
-            index += 2;
+            // nBytes : byte 12 - 13
+            buffer[index++] = (byte)(Nbytes >> 8);
+            buffer[index++] = (byte)(Nbytes & 0xFF);
 
             // Data
             if (Data != null && Data.Length > 0)
@@ -118,7 +117,7 @@ namespace Common
         }
 
         // ----------------------------------------------------------
-        // Print packet info
+        //                     Print packet info
         // ----------------------------------------------------------
         public override string ToString()
         {

@@ -15,5 +15,21 @@
       "expectResponse": true,
       "requestId": "cmd-001"
     },
+    {
+      "target": "obc",
+      "Description": "Create a housekeeping parameter report",   
+      "Input" : "parameter report structure id",
+      "DataFormat" : "UINT8",
+      "Service": 3,
+      "Subservice": 1  
+    },
+    {
+      "target": "obc",
+      "Description": "Enable the periodic generation of housekeeping parameter reports", 
+      "Input" : ["Parameter report structure id", "Generation period (seconds)"],
+      "DataFormat" : ["UINT8", "long"],  
+      "Service": 3,
+      "Subservice": 5  
+    }
   ]
 }

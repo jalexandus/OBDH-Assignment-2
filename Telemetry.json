@@ -1,19 +1,29 @@
 {
-  "commands": [
+  "TM": [
     {
-      "target": "payload",
-      "cmd": "mode",
-      "action": "set",      
-      "expectResponse": true,
-      "serviceType": "cmd-001",
-      "subType": "cmd-001"
+      "source": "obc",
+      "tm": "Successful acceptance verification",   
+      "Service": 1,
+      "Subservice": 1  
     },
     {
-      "target": "obc",
-      "cmd": "time",
-      "action": "get",      
-      "expectResponse": true,
-      "requestId": "cmd-001"
+      "source": "obc",
+      "cmd": "Successful completion of execution",
+      "Service": 1,
+      "Subservice": 7  
     },
+    {
+      "source": "obc",
+      "cmd": "Failed start of execution",     
+      "Service": 1,
+      "Subservice": 4  
+    },
+    {
+      "source": "obc",
+      "cmd": "Housekeeping parameter report",   
+      "Service": 3,
+      "Subservice": 25  
+    }
+
   ]
 }
