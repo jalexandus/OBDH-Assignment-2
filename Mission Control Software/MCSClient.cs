@@ -13,19 +13,17 @@ using System.Threading;
 
 namespace Mission_Control_Software;
 internal class MCSCLient
-{ 
+{
+    private static ushort recieveSequenceCount = 0;
+    private static ushort transmitSequenceCount = 0;
+
+    private static BlockingCollection<Request> OutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+    private static BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
 
     static async Task<int> Main(string[] args)
     {
         const string configFilePath = "config.txt";
         string serverIpAddressString;
-        IPEndPoint ipEndPoint;
-        ushort recieveSequenceCount = 0;
-        ushort transmitSequenceCount = 0;
-
-        BlockingCollection<Request> OutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
-        BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
-
         
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
         Console.WriteLine("████████████████ ~ LTU Mission Control software ~ ████████████████");
@@ -73,7 +71,7 @@ internal class MCSCLient
 
         // Start the communcation task
         var cts = new CancellationTokenSource();
-        var commTask = CommunicationSession(cts.Token);
+        var commTask = CommunicationSession(localIpAddress, cts.Token);
 
         // Command input loop
         while (true)
@@ -97,92 +95,91 @@ internal class MCSCLient
         await commTask;
         return 0;
 
-        void CommandHandler(MCSCommand input)
+    }
+    private static void CommandHandler(MCSCommand input)
+    {
+        switch (input.args[0])
         {
-            switch (input.args[0])
-            {
-                case "send":
-                    SendString(DateTime.UtcNow, input.args[1]);
-                    break;
-                default:
-                    Console.WriteLine("ERROR: Not a recognized command.");
-                    break;
-            }
+            case "send":
+                SendString(DateTime.UtcNow, input.args[1]);
+                break;
+            default:
+                Console.WriteLine("ERROR: Not a recognized command.");
+                break;
         }
-        async Task CommunicationSession(CancellationToken cancelToken)
+    }
+    private static async Task CommunicationSession(IPAddress localIpAddress, CancellationToken cancelToken)
+    {
+        IPEndPoint ipEndPoint = new(localIpAddress, 11_000);
+
+        // Open client socket 
+
+        using Socket client = new(
+            ipEndPoint.AddressFamily,
+            SocketType.Stream,
+            ProtocolType.Tcp
+        );
+        try
         {
-            ipEndPoint = new(localIpAddress, 11_000);
-
-            // Open client socket 
-
-            using Socket client = new(
-                ipEndPoint.AddressFamily,
-                SocketType.Stream,
-                ProtocolType.Tcp
-            );
-            try
-            {
-                await client.ConnectAsync(ipEndPoint);
-                Console.WriteLine($"Connected from {client.LocalEndPoint} to {client.RemoteEndPoint}");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Processing failed: {e.Message}");
-            }
-
-
-            // Empty outgoing command queue
-            var sendTask = Task.Run(async () => 
-            {
-                while (!cancelToken.IsCancellationRequested)
-                {
-                    // Send next packet in queue
-                    Request nextRequest = OutgoingQueue.Take(cancelToken);
-                    byte[] messageBytes = nextRequest.Serialize();
-                    await client.SendAsync(messageBytes, SocketFlags.None);
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[TX]: {nextRequest.ToString()}");
-                    Console.ForegroundColor = ConsoleColor.White;
-                } 
-            }, cancelToken);
-
-            var receiveTask = Task.Run(async () =>
-            {
-                while (!cancelToken.IsCancellationRequested)
-                {
-                    // Receive telemetry.
-                    var buffer = new byte[1_024];
-                    await client.ReceiveAsync(buffer, SocketFlags.None);
-                    Report telemetry = new Report(buffer);
-
-                    recieveSequenceCount++;
-                    Console.ForegroundColor = ConsoleColor.Blue;
-                    Console.WriteLine($"[RX]: {telemetry.ToString()}");
-                    Console.ForegroundColor = ConsoleColor.White;
-                }
-            }, cancelToken);
-
-            await receiveTask;
-            await sendTask;
-
-            // Close socket
-            client.Shutdown(SocketShutdown.Both);
+            await client.ConnectAsync(ipEndPoint);
+            Console.WriteLine($"Connected from {client.LocalEndPoint} to {client.RemoteEndPoint}");
         }
-        void SendString(DateTime utcTime, string message)
+        catch (Exception e)
         {
-            // Convert to Unix time in seconds
-            long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
-
-
-            // Set service and subservice type
-            byte serviceType = 2;
-            byte serviceSubtype = 1;
-
-            // Encode message data
-            byte[] data = Encoding.UTF8.GetBytes(message);
-            Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
-            OutgoingQueue.Add(TX_Pckt);
+            Console.WriteLine($"Processing failed: {e.Message}");
         }
-        
+
+
+        // Empty outgoing command queue
+        var sendTask = Task.Run(async () =>
+        {
+            while (!cancelToken.IsCancellationRequested)
+            {
+                // Send next packet in queue
+                Request nextRequest = OutgoingQueue.Take(cancelToken);
+                byte[] messageBytes = nextRequest.Serialize();
+                await client.SendAsync(messageBytes, SocketFlags.None);
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[TX]: {nextRequest.ToString()}");
+                Console.ForegroundColor = ConsoleColor.White;
+            }
+        }, cancelToken);
+
+        var receiveTask = Task.Run(async () =>
+        {
+            while (!cancelToken.IsCancellationRequested)
+            {
+                // Receive telemetry.
+                var buffer = new byte[1_024];
+                await client.ReceiveAsync(buffer, SocketFlags.None);
+                Report telemetry = new Report(buffer);
+
+                recieveSequenceCount++;
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine($"[RX]: {telemetry.ToString()}");
+                Console.ForegroundColor = ConsoleColor.White;
+            }
+        }, cancelToken);
+
+        await receiveTask;
+        await sendTask;
+
+        // Close socket
+        client.Shutdown(SocketShutdown.Both);
+    }
+    private static void SendString(DateTime utcTime, string message)
+    {
+        // Convert to Unix time in seconds
+        long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+
+
+        // Set service and subservice type
+        byte serviceType = 2;
+        byte serviceSubtype = 1;
+
+        // Encode message data
+        byte[] data = Encoding.UTF8.GetBytes(message);
+        Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
+        OutgoingQueue.Add(TX_Pckt);
     }
 }
