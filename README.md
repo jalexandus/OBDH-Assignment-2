@@ -1,11 +1,13 @@
 **Don't look to closely at the json files, they aren't implemented yet and are only there as a sketch.**
+# OBDH Assignment 2
+## Mission control software
 
-##Mission control software##
 Four tasks are running simultaneously, one task deals with interpreting the user inputs and assembling reports to be put into the send queue. 
 Another task, _CommunicationSession_ deals with opening the the socket session and starting two tasks:  one that continuously serializes the requests and send them and the other one that de-serializes report packets from the received queue for reports which need to be processed This lets receiving and sending commands run in parallel -  one task fills up a queue, and a separate task progressively empties it ensuring a long queue of outgoing packets does not block the reception of the generated reports. The queues are implemented using _Blocking collections_, these allow the concurrent adding and taking of items from multiple threads. The _CommunicationSession_ has its own cancellation token to securely shut down the communication session and the exit receiving and sending loops. 
 
-##On-board software##
-#On-board time#
+## On-board software
+### On-board time
+
 The on-board time is at the lowest level a _long_  UNIX-time counter incremented every second. Since the time is central to almost all tasks it is essential that the use of this resource be coordinated between threads. One way to achieve this would be by protecting the variable using a MUTEX. This however, would mean occasionally blocking either the timer increment or any task wanting to retrieve or set the time, introducing jitter. A different approach is to use \textit atomic operations  (known in windows as ) letting the processor read, add one, and store the time as a set of "indivisible" instructions. In this way, no task is blocked and the increment is guaranteed to be completed in a single, indivisible step. As long as all access to the OBT counter uses atomic operations, race conditions cannot occur. This is also important if the system is 32-bit as reading/writing are atomic operations on a 64-bit while not on a 32-bit system.  
 
 The time should ideally be made persistent be storing it in non-volatile memory so that time keeping isn't lost upon reboot or power cycle.
