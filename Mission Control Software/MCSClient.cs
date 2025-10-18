@@ -3,13 +3,16 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.Wasm;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Mission_Control_Software;
 internal class MCSCLient
@@ -102,11 +105,28 @@ internal class MCSCLient
         {
             case "send":
                 SendString(DateTime.UtcNow, input.args[1]);
-                break;
+                return;
+            case "time":
+                if (input.args[1] == "now") UpdateOBT(DateTime.UtcNow);
+                else
+                {
+                    try
+                    {
+                        CultureInfo culture = CultureInfo.CreateSpecificCulture("en-US");
+                        UpdateOBT(DateTime.Parse(input.args[1], culture, DateTimeStyles.AssumeLocal));
+                    }
+                    catch (Exception e)
+                    {
+                        throw;
+                    }
+                    
+                }
+                
+                return;
             default:
-                Console.WriteLine("ERROR: Not a recognized command.");
                 break;
         }
+        Console.WriteLine("ERROR: Not a recognized command.");
     }
     private static async Task CommunicationSession(IPAddress localIpAddress, CancellationToken cancelToken)
     {
@@ -179,6 +199,18 @@ internal class MCSCLient
 
         // Encode message data
         byte[] data = Encoding.UTF8.GetBytes(message);
+        Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
+        OutgoingQueue.Add(TX_Pckt);
+    }
+    private static void UpdateOBT(DateTime utcTime)
+    {
+        // Set service and subservice type
+        byte serviceType = 9;
+        byte serviceSubtype = 4;
+
+        long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+
+        byte[] data = BitConverter.GetBytes(unixSeconds);
         Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
         OutgoingQueue.Add(TX_Pckt);
     }

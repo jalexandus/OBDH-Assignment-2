@@ -105,14 +105,21 @@ internal class PlatformOBC
         return 0;
     }
 
-    private static void RequestHandler(Request packet, CancellationToken cancelToken)
+    private static void RequestHandler(Request request, CancellationToken cancelToken)
     {
-        switch (packet.ServiceType) 
+        switch (request.ServiceType) 
         { 
             case 2:
-            string message = Encoding.UTF8.GetString(packet.Data, 0, packet.Nbytes);
+            string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
             Console.WriteLine("Recieved string:" + message);
             break;
+            case 9:
+                if (request.ServiceSubtype == 4)
+                {
+                    SetCurrentTime(BitConverter.ToInt64(request.Data));
+                    break;
+                }
+                else return;
 
         default:
             TransmitQueue.Add(InvalidCommandReport(), cancelToken);
