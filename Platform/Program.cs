@@ -144,7 +144,7 @@ internal class PlatformOBC
         var handler = await listener.AcceptAsync();
 
 
-        // Fill recieved command queue
+        // Fill recieved request queue
         var recieveTask = Task.Run(async () =>
         {
             while (!cancelToken.IsCancellationRequested)
@@ -154,22 +154,19 @@ internal class PlatformOBC
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
 
-                // Verify command isnt outdated
-                var deltaTime = GetCurrentTime() - DateTimeOffset.FromUnixTimeSeconds(recievedRequest.TimeStamp).ToUnixTimeSeconds();
-
-                if (deltaTime < +1 || true) // accept t+1 second overdueness
+                if (recievedRequest.SequenceControl == recieveSequenceCount++)
                 {
-                    RecieveQueue.Add(recievedRequest, cancelToken);
-                    TransmitQueue.Add(AcknowledgeReport(), cancelToken);
+                    RecieveQueue.Add(recievedRequest, cancelToken);         // add request to queue
+                    TransmitQueue.Add(AcknowledgeReport(), cancelToken);    // send acknowledgement
                 }
                 else {
                     TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 }
 
-            }
+            }       
         }, cancelToken);
 
-        // Empty transmit packet queue
+        // Empty transmit report queue
         var sendTask = Task.Run(async () =>
         {
             while (!cancelToken.IsCancellationRequested)
@@ -193,17 +190,17 @@ internal class PlatformOBC
     private static Report AcknowledgeReport()
     {
         // Create packet with service/subservice: Successful acceptance verification
-        return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>() );
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 1, Array.Empty<byte>() );
     }
     private static Report InvalidCommandReport()
     {
         // Create packet with service/subservice: Failed start of execution
-        return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 4, Array.Empty<byte>());
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 4, Array.Empty<byte>());
     }
     private static Report CompletedCommandReport()
     {
         // Create packet with service/subservice: Failed start of execution
-        return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 4, Array.Empty<byte>());
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 4, Array.Empty<byte>());
     }
 
     // Returns the OBC time in unix seconds 
@@ -234,5 +231,15 @@ internal class PlatformOBC
     {
 
     }
+    /*
+    private static void Schedule()
+    {
+
+        // Verify command isnt outdated
+        var deltaTime = GetCurrentTime() - DateTimeOffset.FromUnixTimeSeconds(recievedRequest.TimeStamp).ToUnixTimeSeconds();
+
+        if (deltaTime < +1 || true) // accept t+1 second overdueness
+    }
+    */
 }
 

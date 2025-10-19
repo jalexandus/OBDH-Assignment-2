@@ -1,4 +1,5 @@
 ﻿using Common;
+using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -101,32 +102,50 @@ internal class MCSCLient
     }
     private static void CommandHandler(MCSCommand input)
     {
+        byte APID;
+        // Selct sink
         switch (input.args[0])
         {
-            case "send":
-                SendString(DateTime.UtcNow, input.args[1]);
+            case "obc":
+                APID = 0;
+                break;
+            case "payload":
+                APID = 1;
+                break;
+            default:
+                Console.WriteLine($"'{input.args[0]}' is not a recognized application ID.");
                 return;
-            case "time":
-                if (input.args[1] == "now") UpdateOBT(DateTime.UtcNow);
+        }
+
+        switch (input.args[1])
+        {
+            case "send":
+                SendString(APID, DateTime.UtcNow, input.args[2]);
+                return;
+            case "update-OBT":
+                if (input.args[2] == "now") UpdateOBT(APID, DateTime.UtcNow);
                 else
                 {
                     try
                     {
+                        string timeString = "";
+                        for (int i = 2; i < input.args.Length; i++)
+                        {
+                            timeString += input.args[i] + " ";
+                        }
                         CultureInfo culture = CultureInfo.CreateSpecificCulture("en-US");
-                        UpdateOBT(DateTime.Parse(input.args[1], culture, DateTimeStyles.AssumeLocal));
+                        UpdateOBT(APID, DateTime.Parse(input.args[2], culture, DateTimeStyles.AssumeLocal));
                     }
                     catch (Exception e)
                     {
                         throw;
-                    }
-                    
-                }
-                
+                    }                    
+                }                
                 return;
             default:
-                break;
-        }
-        Console.WriteLine("ERROR: Not a recognized command.");
+                Console.WriteLine($"'{input.args[1]}' is not a recognized command.");
+                return;
+        }        
     }
     private static async Task CommunicationSession(IPAddress localIpAddress, CancellationToken cancelToken)
     {
@@ -147,6 +166,7 @@ internal class MCSCLient
         catch (Exception e)
         {
             Console.WriteLine($"Processing failed: {e.Message}");
+            return;
         }
 
 
@@ -187,31 +207,31 @@ internal class MCSCLient
         // Close socket
         client.Shutdown(SocketShutdown.Both);
     }
-    private static void SendString(DateTime utcTime, string message)
+    private static void SendString(byte applicationID, DateTime utcTime, string message)
     {
         // Convert to Unix time in seconds
         long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
 
 
         // Set service and subservice type
-        byte serviceType = 2;
-        byte serviceSubtype = 1;
+        const byte serviceType = 2;
+        const byte serviceSubtype = 1;
 
         // Encode message data
         byte[] data = Encoding.UTF8.GetBytes(message);
-        Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
+        Request TX_Pckt = new Request(unixSeconds, applicationID, transmitSequenceCount++, serviceType, serviceSubtype, data);
         OutgoingQueue.Add(TX_Pckt);
     }
-    private static void UpdateOBT(DateTime utcTime)
+    private static void UpdateOBT(byte applicationID, DateTime utcTime)
     {
         // Set service and subservice type
-        byte serviceType = 9;
-        byte serviceSubtype = 4;
+        const byte serviceType = 9;
+        const byte serviceSubtype = 4;
 
         long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
 
         byte[] data = BitConverter.GetBytes(unixSeconds);
-        Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
+        Request TX_Pckt = new Request(unixSeconds, applicationID, transmitSequenceCount++, serviceType, serviceSubtype, data);
         OutgoingQueue.Add(TX_Pckt);
     }
 }

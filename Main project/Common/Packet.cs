@@ -7,9 +7,10 @@ using System.Threading.Tasks;
 
 namespace Common
 {
-    public class DataField
+    public class Packet
     {
         public long TimeStamp;              // 8 bytes
+        public byte ApplicationID;          // 1 byte
         public ushort SequenceControl;      // 2 bytes
         public byte ServiceType;            // 1 byte
         public byte ServiceSubtype;         // 1 byte
@@ -17,31 +18,32 @@ namespace Common
         public byte[] Data;                 // N bytes (payload)
 
         private int totalNumberOfBytes;
-        // ______________________________________________________________________________
-        // | Timestamp | Sequence | Service | Subservice | NumberOfBytes |     Data     |
-        // ------------------------------------------------------------------------------
-        // |  8 bytes  |  2 bytes | 1 byte  |   1 byte   |    2 bytes    |    N bytes   |
-        // |   0 - 7   |   8 - 9  |   10    |     11     |    12 - 13    |  14 - 14+N-1 | 
+        // ______________________________________________________________________________________________
+        // | Timestamp | ApplicationID | Sequence | Service | Subservice | NumberOfBytes |     Data     |
+        // ----------------------------------------------------------------------------------------------
+        // |  8 bytes  |     1 byte    | 2 bytes  | 1 byte  |   1 byte   |    2 bytes    |    N bytes   |
+        // |   0 - 7   |       8       |  9 - 10  |   11    |     12     |    13 - 14    |  15 - 15+N-1 | 
         // |    Unix   |  
 
         // ----------------------------------------------------------
         //    Constructor 1: Create packet by filling each field
         // ----------------------------------------------------------
-        public DataField(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
+        public Packet(long timeStamp, byte applicationID, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data)
         {
             TimeStamp = timeStamp;
+            ApplicationID = applicationID;
             SequenceControl = sequenceControl;
             ServiceType = serviceType;
             ServiceSubtype = serviceSubtype;
             Nbytes = (ushort)(data != null ? data.Length : 0);
             Data = data ?? Array.Empty<byte>();
-            totalNumberOfBytes = 8 + 2 + 1 + 1 + 2 + Nbytes; // header + data
+            totalNumberOfBytes = 8 + 1 + 2 + 1 + 1 + 2 + Nbytes; // header + data
         }
 
         // ----------------------------------------------------------
         // Constructor 2: Create packet by deserializing a byte array
         // ----------------------------------------------------------
-        public DataField(byte[] raw)
+        public Packet(byte[] raw)
         {
             if (raw == null || raw.Length < 6)
                 throw new ArgumentException("Invalid packet length");
@@ -53,6 +55,8 @@ namespace Common
             TimeStamp = BitConverter.ToInt64(timeBytes, 0);
 
             index += 8;
+
+            ApplicationID = raw[index++];
 
             // Sequence Control (ushort, big-endian)
             byte[] seqBytes = { raw[index + 1], raw[index] };
@@ -94,20 +98,23 @@ namespace Common
             Array.Copy(BitConverter.GetBytes(timeBE), 0, buffer, index, 8);
             index += 8;
 
-            // Sequence Control : byte 8 - 9
+            // Application ID
+            buffer[index++] = ApplicationID;    // : byte 8 
+
+            // Sequence Control : byte 9 - 10
             ushort seqBE = (ushort)IPAddress.HostToNetworkOrder(SequenceControl);
             Array.Copy(BitConverter.GetBytes(seqBE), 0, buffer, index, 2);
             index += 2;
 
             // Service Type and Subtype 
-            buffer[index++] = ServiceType;    // : byte 10 
-            buffer[index++] = ServiceSubtype; // : byte 11
+            buffer[index++] = ServiceType;    // : byte 11
+            buffer[index++] = ServiceSubtype; // : byte 12
 
-            // nBytes : byte 12 - 13
+            // nBytes : byte 13 - 14
             buffer[index++] = (byte)(Nbytes >> 8);
             buffer[index++] = (byte)(Nbytes & 0xFF);
 
-            // Data
+            // Data : byte 15 - 1+N
             if (Data != null && Data.Length > 0)
                 Array.Copy(Data, 0, buffer, index, Data.Length);
 
@@ -120,7 +127,7 @@ namespace Common
         public override string ToString()
         {
             DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(TimeStamp);
-            return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, Service={ServiceType}, Subservice={ServiceSubtype}, Databytes={Nbytes}, Total={totalNumberOfBytes}";
+            return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, AppID={ApplicationID}, Service={ServiceType}, Subservice={ServiceSubtype}, Databytes={Nbytes}, Total={totalNumberOfBytes}";
         }
     }
 }
