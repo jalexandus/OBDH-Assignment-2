@@ -59,8 +59,8 @@ internal class PlatformOBC
         byte adcs_mode;
     }
 
-    private static IPEndPoint ipEndPointSpaceLink;
-    private static IPEndPoint ipEndPointBusController;
+    private static IPEndPoint? ipEndPointSpaceLink;
+    private static IPEndPoint? ipEndPointBusController;
 
     private static ushort recieveSequenceCount = 0;     // MCS -> OBC
     private static ushort transmitSequenceCount = 0;    // OBC -> MCS
@@ -102,7 +102,6 @@ internal class PlatformOBC
 
         // Start the communcation task with Payload
         var busCommTask = MainBusCommunicationSession(cts.Token);
-
 
         // command interpreter 
         // Loops through the queue of received commands and executes the ones that are due.
@@ -211,9 +210,15 @@ internal class PlatformOBC
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
 
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine($"[RX]: {recievedRequest.ToString()}");
+                Console.ForegroundColor = ConsoleColor.White;
+
                 // Check sequence count
-                if (recievedRequest.SequenceControl == recieveSequenceCount++)
+                if (recievedRequest.SequenceControl == recieveSequenceCount)
                 {
+                    recieveSequenceCount++;
+
                     RecieveQueue.Add(recievedRequest, cancelToken);
                     TransmitQueue.Add(AcknowledgeReport(), cancelToken);
                 }
@@ -229,11 +234,12 @@ internal class PlatformOBC
         {
             while (!cancelToken.IsCancellationRequested)
             {
-                Report nextReport = TransmitQueue.Take(cancelToken);
-                await handler.SendAsync(nextReport.Serialize(), 0);
-                Console.ForegroundColor = ConsoleColor.Blue;
+                Report nextReport = TransmitQueue.Take(cancelToken);                
+                Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[TX]: {nextReport.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
+
+                await handler.SendAsync(nextReport.Serialize(), 0);
             }
         }, cancelToken);
 
@@ -246,22 +252,30 @@ internal class PlatformOBC
     {
 
         // Open client socket 
-
         using Socket client = new(
             ipEndPointBusController.AddressFamily,
             SocketType.Stream,
             ProtocolType.Tcp
         );
-        try
+
+        int timeout = 10;
+        for (int i = 0; i < timeout; i++)
         {
-            await client.ConnectAsync(ipEndPointBusController);
-            Console.WriteLine($"Connected main bus from {client.LocalEndPoint} to {client.RemoteEndPoint}");
+            try
+            {
+                await client.ConnectAsync(ipEndPointBusController);
+                Console.WriteLine($"Connected main bus from {client.LocalEndPoint} to {client.RemoteEndPoint}");
+                break;
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"Processing failed: {exception.Message}");
+            }
+            Thread.Sleep(100);
         }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Processing failed: {e.Message}");
-            return;
-        }
+
+
+        
         // Empty outgoing command queue
         var sendTask = Task.Run(async () =>
         {
@@ -271,8 +285,8 @@ internal class PlatformOBC
                 Request nextRequest = MainBusOutgoingQueue.Take(cancelToken);
                 byte[] messageBytes = nextRequest.Serialize();
                 await client.SendAsync(messageBytes, SocketFlags.None);
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[MCS -> OBC] TX: {nextRequest.ToString()}");
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine($"[OBC -> PL]: {nextRequest.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);
@@ -286,6 +300,9 @@ internal class PlatformOBC
                 await client.ReceiveAsync(buffer, SocketFlags.None);
                 Report payloadReport = new Report(buffer);
                 TransmitQueue.Add(payloadReport);
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[PL -> OBC]: {payloadReport.ToString()}");
+                Console.ForegroundColor = ConsoleColor.Cyan;
             }
         }, cancelToken);
 

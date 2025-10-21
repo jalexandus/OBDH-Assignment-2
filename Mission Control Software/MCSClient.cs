@@ -145,7 +145,7 @@ internal class MCSCLient
         {
             case "send":
                 {
-                    string message = string.Join(" ", input.args.Reverse()); // Combine remaining args
+                    string message = string.Join(" ",input.args); // Combine remaining args
                     TX_Pckt = SendString(APID, DateTime.UtcNow, message.Trim());
                     break;
                 }
@@ -155,15 +155,15 @@ internal class MCSCLient
                     if (input.args.Count == 0)
                         throw new Exception("Missing time argument for update-obt.");
 
-                    string arg = input.args.Pop().ToLowerInvariant();
+                    string arg = input.args.Peek().ToLowerInvariant();
                     if (arg == "now")
                     {
                         TX_Pckt = UpdateOBT(APID, DateTime.UtcNow);
                     }
                     else
                     {
-                        // Reconstruct possible multi-token timestamp
-                        string timeString = arg + (input.args.Count > 0 ? " " + string.Join(" ", input.args.Reverse()) : "");
+                        // Reconstruct timestamp string
+                        string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
                         var culture = CultureInfo.CreateSpecificCulture("en-US");
                         DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
                         TX_Pckt = UpdateOBT(APID, newOBT);
@@ -228,6 +228,7 @@ internal class MCSCLient
                 await client.SendAsync(messageBytes, SocketFlags.None);
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[MCS -> OBC] TX: {nextRequest.ToString()}");
+                //Console.WriteLine($"DEBUG: Compare {new Request(messageBytes).ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);
