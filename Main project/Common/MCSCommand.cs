@@ -16,7 +16,6 @@ namespace Common
             STR = str;    // Unformatted string
             OutParser.Parse(str, "{strings: }", out List<string> strings);
             args = strings.ToArray();
-
         }
     }
 }

@@ -13,7 +13,7 @@ using System.Text;
 using System.Timers;
 
 namespace Payload; // For logging;  https://learn.microsoft.com/en-us/dotnet/core/extensions/logging?tabs=command-line
-                                  // https://learn.microsoft.com/en-us/answers/questions/1377949/logging-in-c-to-a-text-file
+                   // https://learn.microsoft.com/en-us/answers/questions/1377949/logging-in-c-to-a-text-file
 
 internal class Payload
 {
@@ -103,7 +103,7 @@ internal class Payload
                 else return;
 
             default:
-               // TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                // TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 return;
         }
         // TransmitQueue.Add(CompletedCommandReport(), cancelToken);
@@ -134,6 +134,8 @@ internal class Payload
                 var buffer = new byte[1_024];
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
+                RecieveQueue.Add(recievedRequest, cancelToken);
+                //TransmitQueue.Add(AcknowledgeReport(), cancelToken);
 
             }
         }, cancelToken);
@@ -158,5 +160,11 @@ internal class Payload
 
         listener.Shutdown(SocketShutdown.Both);
     }
+
+    // private static Report AcknowledgeReport()
+    // {
+    // Create packet with service/subservice: Successful acceptance verification
+    //   return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>());
+    //}
 
 }
