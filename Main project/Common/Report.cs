@@ -6,7 +6,19 @@
         {
 
         }
-        public Report(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data) : base(timeStamp,  sequenceControl, serviceType, serviceSubtype, data)
+        public Report(long timeStamp, ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data) : base(timeStamp, sequenceControl, serviceType, serviceSubtype, data)
+        {
+
+        }
+    }
+
+    public class Report : DataField2
+    {
+        public Report(byte[] raw) : base(raw)
+        {
+
+        }
+        public Report(ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data) : base(sequenceControl, serviceType, serviceSubtype, data)
         {
 
         }

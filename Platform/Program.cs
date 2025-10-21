@@ -199,9 +199,9 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
                 Report nextReport = TransmitQueue.Take(cancelToken);
                 await handler.SendAsync(nextReport.Serialize(), 0);
 
-                Console.WriteLine($"[OBC -> MCS] Sent acknowledgment: ");
+                Console.WriteLine($"[OBC -> MCS] TX Sent acknowledgment: ");
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine(nextReport.ToString());
+                Console.WriteLine($"[OBC -> MCS] TX: " + nextReport.ToString());
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);

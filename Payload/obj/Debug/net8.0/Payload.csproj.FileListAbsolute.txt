@@ -1,5 +1,0 @@
-C:\Users\jonat\source\repos\OBDH-Assignment-2\Payload\obj\Debug\net8.0\Payload.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\jonat\source\repos\OBDH-Assignment-2\Payload\obj\Debug\net8.0\Payload.AssemblyInfoInputs.cache
-C:\Users\jonat\source\repos\OBDH-Assignment-2\Payload\obj\Debug\net8.0\Payload.AssemblyInfo.cs
-C:\Users\jonat\source\repos\OBDH-Assignment-2\Payload\obj\Debug\net8.0\Payload.csproj.CoreCompileInputs.cache
-C:\Users\jonat\source\repos\OBDH-Assignment-2\Payload\obj\Debug\net8.0\Payload.sourcelink.json

@@ -134,6 +134,8 @@ internal class Payload
                 var buffer = new byte[1_024];
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
+                RecieveQueue.Add(recievedRequest, cancelToken);
+                //TransmitQueue.Add(AcknowledgeReport(), cancelToken);
 
             }
         }, cancelToken);
@@ -158,5 +160,11 @@ internal class Payload
 
         listener.Shutdown(SocketShutdown.Both);
     }
+
+   // private static Report AcknowledgeReport()
+   // {
+        // Create packet with service/subservice: Successful acceptance verification
+     //   return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>());
+    //}
 
 }
