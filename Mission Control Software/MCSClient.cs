@@ -146,7 +146,8 @@ internal class MCSCLient
             case "send":
                 {
                     string message = string.Join(" ",input.args); // Combine remaining args
-                    TX_Pckt = SendString(APID, DateTime.UtcNow, message.Trim());
+                    message.Trim();
+                    TX_Pckt = SendString(APID, message);
                     break;
                 }
 
@@ -174,17 +175,18 @@ internal class MCSCLient
             case "schedule":
                 {
                     if (input.args.Count < 2)
-                        throw new Exception("schedule requires <time> <command ...>");
+                        throw new Exception("schedule requires <Application> <Command> (<Arguments>)");
 
+                    Request request = CommandHandler(input);
                     // Extract schedule time
-                    string timeString = input.args.Pop();
+                    
+
+                    Console.WriteLine($"Input time to schedule comman for: ");
+
                     var culture = CultureInfo.CreateSpecificCulture("en-US");
-                    DateTime scheduleTime = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
+                    DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
 
-                    // Clone the input with the remaining args for a recursive call
-                    var nestedCommand = input;
-
-                    TX_Pckt = Schedule(APID, scheduleTime, CommandHandler(nestedCommand));
+                    TX_Pckt = Schedule(APID, scheduleTime, request);
                     break;
                 }
 
@@ -302,10 +304,10 @@ internal class MCSCLient
 
         Console.ForegroundColor = ConsoleColor.White;
     }
-    private static Request SendString(byte applicationID, DateTime utcTime, string message)
+    private static Request SendString(byte applicationID, string message)
     {
         // Convert to Unix time in seconds
-        long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
 
 
         // Set service and subservice type
@@ -335,8 +337,14 @@ internal class MCSCLient
         const byte serviceType = 11;
         const byte serviceSubtype = 4;
 
-        long unixSeconds = new DateTimeOffset(scheduleTime).ToUnixTimeSeconds();
-        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
+        // Convert current time to Unix time in seconds
+        long unixSecondsCurrent = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        long unixSecondsSchedule = new DateTimeOffset(scheduleTime).ToUnixTimeSeconds();
+
+        payloadPacket.TimeStamp = unixSecondsSchedule;
+
+        return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
     }
 
     private static void LoggingHandler(Report report)

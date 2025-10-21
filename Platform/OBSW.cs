@@ -117,6 +117,7 @@ internal class PlatformOBC
             {
                 if (GetCurrentTime() >= priority)
                 {
+                    Console.WriteLine($"Current time {GetCurrentTime()}, scheduled time: {priority}");
                     ScheduleQueue.Dequeue();
                     Console.WriteLine($"Executing scheduled: {nextScheduled.ToString()}");
                     RequestHandler(nextScheduled, cts.Token);
@@ -140,14 +141,14 @@ internal class PlatformOBC
                 break;
             case 1: // Application: PayloadSW
                 Console.WriteLine("Forwarding request to payload");
-                MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue (just to check if message is forwarded)
+                MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
                 return;
         }
         switch (request.ServiceType)
         {
             case 2:
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
-                Console.WriteLine("Recieved string:" + message);
+                Console.WriteLine("Recieved string: " + message);
                 // CommandHandlerPayload(message); // Forward to payload request handler 
                 break;
             case 9:
@@ -240,6 +241,7 @@ internal class PlatformOBC
                 Console.ForegroundColor = ConsoleColor.White;
 
                 await handler.SendAsync(nextReport.Serialize(), 0);
+                transmitSequenceCount++;
             }
         }, cancelToken);
 
@@ -316,17 +318,17 @@ internal class PlatformOBC
     private static Report AcknowledgeReport()
     {
         // Create packet with service/subservice: Successful acceptance verification
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 1, Array.Empty<byte>() );
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 1, Array.Empty<byte>() );
     }
     private static Report InvalidCommandReport()
     {
         // Create packet with service/subservice: Failed acceptance verification report
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 2, Array.Empty<byte>());
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 2, Array.Empty<byte>());
     }
     private static Report CompletedCommandReport()
     {
         // Create packet with service/subservice: Failed start of execution
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 4, Array.Empty<byte>());
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
 
     // Returns the OBC time in unix seconds 
