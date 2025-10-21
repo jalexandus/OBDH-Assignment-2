@@ -127,7 +127,7 @@ namespace Common
         public override string ToString()
         {
             DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(TimeStamp);
-            return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, AppID={ApplicationID}, Service={ServiceType}, Subservice={ServiceSubtype}, Databytes={Nbytes}, Total={totalNumberOfBytes}";
+            return $"{unixTime.ToUniversalTime().ToString()}: Seq={SequenceControl}, AppID={ApplicationID}, Service=[{ServiceType},{ServiceSubtype}], Databytes={Nbytes}, Total={totalNumberOfBytes}";
         }
     }
 

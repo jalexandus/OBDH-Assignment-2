@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
 using System.Collections.Generic;
+using System.ComponentModel.Design;
 
 namespace PayloadSW;
 
@@ -61,15 +62,16 @@ internal class PlatformOBC
     private static IPEndPoint ipEndPointSpaceLink;
     private static IPEndPoint ipEndPointBusController;
 
-    private static ushort recieveSequenceCount = 0; // MCS -> OBC
-    private static ushort transmitSequenceCount = 0; // OBC -> MCS
+    private static ushort recieveSequenceCount = 0;     // MCS -> OBC
+    private static ushort transmitSequenceCount = 0;    // OBC -> MCS
 
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
 
+    private static BlockingCollection<Request> MainBusOutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+    private static BlockingCollection<Report> MainBusIncommingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
 
-    private static BlockingCollection<Request> MainBusTransmitQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
-    private static BlockingCollection<Report> MainBusRecieveQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
+    private static PriorityQueue<Request, long> ScheduleQueue = new PriorityQueue<Request, long>();
 
     static long unix_time = 0; // [s] Unix timestamp (UTC)
 
@@ -101,23 +103,29 @@ internal class PlatformOBC
         // Start the communcation task with Payload
         var busCommTask = MainBusCommunicationSession(cts.Token);
 
+
         // command interpreter 
         // Loops through the queue of received commands and executes the ones that are due.
         while (!cts.IsCancellationRequested)
         {
-            Request nextRequest = RecieveQueue.Take(cts.Token);
-            RequestHandler(nextRequest, cts.Token);
+            // Check the scheduling queue
+            if(RecieveQueue.Count() > 0)
+            {
+                Request nextRequest = RecieveQueue.Take(cts.Token);
+                RequestHandler(nextRequest, cts.Token);
+            }
+            if (ScheduleQueue.TryPeek(out Request nextScheduled, out long priority))
+            {
+                if (GetCurrentTime() >= priority)
+                {
+                    ScheduleQueue.Dequeue();
+                    Console.WriteLine($"Executing scheduled: {nextScheduled.ToString()}");
+                    RequestHandler(nextScheduled, cts.Token);
+                }
+            }
+
         }
         await commTask; await busCommTask; // Pause execution
-
-        /*
-        while (!cts2.IsCancellationRequested)
-        {
-            Request nextRequest2 = TransmitQueue2.Take(cts2.Token);
-            PayloadRequestHandler(nextRequest2, cts2.Token);
-        }
-        await busCommTask; // Pause execution
-        */
 
         // Exit
         Console.Write("Press any key to exit");
@@ -129,11 +137,12 @@ internal class PlatformOBC
     {
         switch (request.ApplicationID)
         {
-            case 0: // Application: OBC
+            case 0: // Application: OBSW
                 break;
-            case 1: // Application: Payload
-                MainBusTransmitQueue.Add(recievedRequest, cancelToken); // Forward to OBC-Payload transmit queue (just to check if message is forwarded)
-                break;
+            case 1: // Application: PayloadSW
+                Console.WriteLine("Forwarding request to payload");
+                MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue (just to check if message is forwarded)
+                return;
         }
         switch (request.ServiceType)
         {
@@ -145,10 +154,25 @@ internal class PlatformOBC
             case 9:
                 if (request.ServiceSubtype == 4)
                 {
-                    SetCurrentTime(BitConverter.ToInt64(request.Data));
+                    long newTime = BitConverter.ToInt64(request.Data);
+                    DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
+                    Console.WriteLine($"Set OBT to: {OBT.ToString()}");
+                    SetCurrentTime(newTime);
                     break;
                 }
-                else return;
+                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                return;
+            case 11:
+                if (request.ServiceSubtype == 4)
+                {
+                    Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
+                    ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
+                    Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
+                    break;
+                }
+                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                return;
+
 
             default:
                 TransmitQueue.Add(InvalidCommandReport(), cancelToken);
@@ -162,7 +186,7 @@ internal class PlatformOBC
 
     }
 
-private static async Task CommunicationSession(CancellationToken cancelToken)
+    private static async Task CommunicationSession(CancellationToken cancelToken)
     {
         // Start server
 
@@ -177,8 +201,6 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
 
         var handler = await listener.AcceptAsync();
 
-        PriorityQueue<Request, short> ScheduleQueue = new PriorityQueue<Request, short>();
-
         // Fill recieved request queue
         var recieveTask = Task.Run(async () =>
         {
@@ -189,11 +211,11 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
 
+                // Check sequence count
                 if (recievedRequest.SequenceControl == recieveSequenceCount++)
                 {
                     RecieveQueue.Add(recievedRequest, cancelToken);
                     TransmitQueue.Add(AcknowledgeReport(), cancelToken);
-                    if(recievedRequest.ServiceType == )
                 }
                 else {
                     TransmitQueue.Add(InvalidCommandReport(), cancelToken);
@@ -209,10 +231,8 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
             {
                 Report nextReport = TransmitQueue.Take(cancelToken);
                 await handler.SendAsync(nextReport.Serialize(), 0);
-
-                Console.WriteLine($"[OBC -> MCS] Sent acknowledgment: ");
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine(nextReport.ToString());
+                Console.WriteLine($"[TX]: {nextReport.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);
@@ -242,15 +262,13 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
             Console.WriteLine($"Processing failed: {e.Message}");
             return;
         }
-
-
         // Empty outgoing command queue
         var sendTask = Task.Run(async () =>
         {
             while (!cancelToken.IsCancellationRequested)
             {
                 // Send next packet in queue
-                Request nextRequest = OutgoingQueue.Take(cancelToken);
+                Request nextRequest = MainBusOutgoingQueue.Take(cancelToken);
                 byte[] messageBytes = nextRequest.Serialize();
                 await client.SendAsync(messageBytes, SocketFlags.None);
                 Console.ForegroundColor = ConsoleColor.Yellow;
@@ -266,12 +284,8 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
                 // Receive telemetry.
                 var buffer = new byte[1_024];
                 await client.ReceiveAsync(buffer, SocketFlags.None);
-                Report telemetry = new Report(buffer);
-
-                recieveSequenceCount++;
-                Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine($"[MCS <- OBC] RX: {telemetry.ToString()}");
-                Console.ForegroundColor = ConsoleColor.White;
+                Report payloadReport = new Report(buffer);
+                TransmitQueue.Add(payloadReport);
             }
         }, cancelToken);
 
@@ -289,8 +303,8 @@ private static async Task CommunicationSession(CancellationToken cancelToken)
     }
     private static Report InvalidCommandReport()
     {
-        // Create packet with service/subservice: Failed start of execution
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 4, Array.Empty<byte>());
+        // Create packet with service/subservice: Failed acceptance verification report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount++, 1, 2, Array.Empty<byte>());
     }
     private static Report CompletedCommandReport()
     {

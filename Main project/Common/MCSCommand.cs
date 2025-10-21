@@ -10,12 +10,15 @@ namespace Common
     public class MCSCommand
     {
         private string STR = "";    // Unformatted string
-        public string[] args;   // Arguments
-        public MCSCommand(string str)
+        public Stack<string> args;   // Arguments
+
+        // Formats a string into a stack of words (strings)  
+        public MCSCommand(string str) 
         {
             STR = str;    // Unformatted string
             OutParser.Parse(str, "{strings: }", out List<string> strings);
-            args = strings.ToArray();
+            strings.Reverse();
+            args = new Stack<string>(strings);
         }
     }
 }

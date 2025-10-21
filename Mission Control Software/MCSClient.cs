@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.Wasm;
 using System.Text;
@@ -77,34 +78,36 @@ internal class MCSCLient
         var cts = new CancellationTokenSource();
         var commTask = CommunicationSession(localIpAddress, cts.Token);
 
+        Request TX_Pckt;
         // Command input loop
         while (true)
         {
-            string input = Console.ReadLine();
-            if (input != null)
-            {
-                MCSCommand cmd = new MCSCommand(input);
-                if (cmd.args[0] == "exit")
-                {
-                    cts.Cancel(); // Cancel the communcation task
-                    break;
-                }
-                else
-                {
-                    try
-                    {
+            string firstCommand;
+            MCSCommand cmd = new MCSCommand(Console.ReadLine());
+            if (cmd.args.Count == 0) continue;
+            else firstCommand = cmd.args.Peek();
 
-                    }
-                    catch (Exception exception)
-                    {
-                        Console.WriteLine(exception.Message);
-                    }
-                    CommandHandler(cmd);
+                
+            if (firstCommand == "exit")
+            {
+                cts.Cancel(); // Cancel the communcation task
+                continue;
+            }
+            else
+            {
+                try
+                {
+                    TX_Pckt = CommandHandler(cmd);
                 }
+                catch (Exception exception)
+                {
+                    Console.WriteLine(exception.Message);
+                    continue;
+                }
+
             }
             OutgoingQueue.Add(TX_Pckt);
             transmitSequenceCount++;
-
         }
         await commTask;
         return 0;
@@ -112,11 +115,14 @@ internal class MCSCLient
     }
     private static Request CommandHandler(MCSCommand input)
     {
-        // Assemble a packet 
+        if (input.args == null || input.args.Count < 2)
+            throw new ArgumentException("Not enough arguments for command.");
 
+        // Select destination (APID) 
         byte APID;
-        // Selct sink
-        switch (input.args[0])
+        string destination = input.args.Pop().ToLowerInvariant();
+
+        switch (destination)
         {
             case "obc":
                 APID = 0;
@@ -125,43 +131,67 @@ internal class MCSCLient
                 APID = 1;
                 break;
             default:
-                throw new Exception($"'{input.args[0]}' is not a recognized application ID.");
+                throw new Exception($"'{destination}' is not a recognized application ID.");
         }
 
-        Request TX_Pckt; 
+        // Select command 
+        if (input.args.Count == 0)
+            throw new Exception("Missing command after destination application.");
 
-        switch (input.args[1])
+        string command = input.args.Pop().ToLowerInvariant();
+        Request TX_Pckt;
+
+        switch (command)
         {
             case "send":
-                TX_Pckt = SendString(APID, DateTime.UtcNow, input.args[2]);
-                break;
-            case "update-obt":
-                if (input.args[2] == "now") UpdateOBT(APID, DateTime.UtcNow);
-                else
                 {
-                    try
-                    {
-                        string timeString = "";
-                        for (int i = 2; i < input.args.Length; i++)
-                        {
-                            timeString += input.args[i] + " ";
-                        }
-                        CultureInfo culture = CultureInfo.CreateSpecificCulture("en-US");
-                        TX_Pckt = UpdateOBT(APID, DateTime.Parse(input.args[2], culture, DateTimeStyles.AssumeLocal));
-                    }
-                    catch (Exception e)
-                    {
-                        throw;
-                    }                    
+                    string message = string.Join(" ", input.args.Reverse()); // Combine remaining args
+                    TX_Pckt = SendString(APID, DateTime.UtcNow, message.Trim());
+                    break;
                 }
-                break;
+
+            case "update-obt":
+                {
+                    if (input.args.Count == 0)
+                        throw new Exception("Missing time argument for update-obt.");
+
+                    string arg = input.args.Pop().ToLowerInvariant();
+                    if (arg == "now")
+                    {
+                        TX_Pckt = UpdateOBT(APID, DateTime.UtcNow);
+                    }
+                    else
+                    {
+                        // Reconstruct possible multi-token timestamp
+                        string timeString = arg + (input.args.Count > 0 ? " " + string.Join(" ", input.args.Reverse()) : "");
+                        var culture = CultureInfo.CreateSpecificCulture("en-US");
+                        DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
+                        TX_Pckt = UpdateOBT(APID, newOBT);
+                    }
+                    break;
+                }
+
             case "schedule":
-                input.args = input.args.
-                TX_Pckt = Schedule(APID, DateTime.Now, CommandHandler(input));
-                break;
+                {
+                    if (input.args.Count < 2)
+                        throw new Exception("schedule requires <time> <command ...>");
+
+                    // Extract schedule time
+                    string timeString = input.args.Pop();
+                    var culture = CultureInfo.CreateSpecificCulture("en-US");
+                    DateTime scheduleTime = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
+
+                    // Clone the input with the remaining args for a recursive call
+                    var nestedCommand = input;
+
+                    TX_Pckt = Schedule(APID, scheduleTime, CommandHandler(nestedCommand));
+                    break;
+                }
+
             default:
-                throw new Exception($"'{input.args[1]}' is not a recognized command.");
+                throw new Exception($"'{command}' is not a recognized command.");
         }
+
         return TX_Pckt;
     }
     private static async Task CommunicationSession(IPAddress localIpAddress, CancellationToken cancelToken)
@@ -213,9 +243,8 @@ internal class MCSCLient
                 LoggingHandler(telemetry);
 
                 recieveSequenceCount++;
-                Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine($"[MCS <- OBC] RX: {telemetry.ToString()}");
-                Console.ForegroundColor = ConsoleColor.White;
+                Report incomingReport = new Report(buffer);
+                InterpretReport(incomingReport);
             }
         }, cancelToken);
 
@@ -224,6 +253,53 @@ internal class MCSCLient
 
         // Close socket
         client.Shutdown(SocketShutdown.Both);
+    }
+    private static void InterpretReport(Report report)
+    {
+        string source;
+        switch (report.ApplicationID)
+        {
+            case 0:
+                source = "OBC";
+                break;
+            case 1:
+                source = "PL";
+                break;
+
+            default:
+                source = "unkown";
+                break;
+        }
+        // Interpret based on Service Subtype (PUS Service 1)
+        switch (report.ServiceSubtype)
+        {
+            case 1:
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[RX {source}] ACK: Command accepted successfully.");
+                break;
+
+            case 2:
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[RX {source}] NACK: Command rejected or invalid.");
+                break;
+
+            case 3:
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[RX {source}] INFO: Command execution started.");
+                break;
+
+            case 4:
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[RX {source}] DONE: Command execution completed successfully.");
+                break;
+
+            default:
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"[RX {source}] Unknown verification report (Subtype {report.ServiceSubtype}).");
+                break;
+        }
+
+        Console.ForegroundColor = ConsoleColor.White;
     }
     private static Request SendString(byte applicationID, DateTime utcTime, string message)
     {
@@ -239,26 +315,26 @@ internal class MCSCLient
         byte[] data = Encoding.UTF8.GetBytes(message);
         return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
     }
-    private static Request UpdateOBT(byte applicationID, DateTime utcTime)
+    private static Request UpdateOBT(byte applicationID, DateTime newOBT)
     {
         // Set service and subservice type
         const byte serviceType = 9;
         const byte serviceSubtype = 4;
 
-        long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+        long unixSeconds = new DateTimeOffset(newOBT).ToUnixTimeSeconds();
 
         byte[] data = BitConverter.GetBytes(unixSeconds);
         return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
     }
 
     //  Insert activities into the time-based schedule
-    private static Request Schedule(byte applicationID, DateTime utcTime, Request payloadPacket) // 
+    private static Request Schedule(byte applicationID, DateTime scheduleTime, Request payloadPacket) // 
     {
         // Set service and subservice type
         const byte serviceType = 11;
         const byte serviceSubtype = 4;
 
-        long unixSeconds = new DateTimeOffset(utcTime).ToUnixTimeSeconds();
+        long unixSeconds = new DateTimeOffset(scheduleTime).ToUnixTimeSeconds();
         return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
     }
 
