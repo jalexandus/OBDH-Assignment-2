@@ -12,15 +12,4 @@
         }
     }
 
-    public class Report : DataField2
-    {
-        public Report(byte[] raw) : base(raw)
-        {
-
-        }
-        public Report(ushort sequenceControl, byte serviceType, byte serviceSubtype, byte[] data) : base(sequenceControl, serviceType, serviceSubtype, data)
-        {
-
-        }
-    }
 }

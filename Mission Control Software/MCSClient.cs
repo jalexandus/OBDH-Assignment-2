@@ -173,6 +173,7 @@ internal class MCSCLient
                 var buffer = new byte[1_024];
                 await client.ReceiveAsync(buffer, SocketFlags.None);
                 Report telemetry = new Report(buffer);
+                LoggingHandler(telemetry);
 
                 recieveSequenceCount++;
                 Console.ForegroundColor = ConsoleColor.Blue;
@@ -213,5 +214,26 @@ internal class MCSCLient
         byte[] data = BitConverter.GetBytes(unixSeconds);
         Request TX_Pckt = new Request(unixSeconds, transmitSequenceCount++, serviceType, serviceSubtype, data);
         OutgoingQueue.Add(TX_Pckt);
+    }
+
+    private static void LoggingHandler(Report report)
+    {
+        string logFilePath = Path.Combine(AppContext.BaseDirectory, "housekeeping.txt");
+
+        try
+        {
+            // Append the message with a timestamp
+            using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
+            {
+                sw.WriteLine(report.ToString());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[LOGGING ERROR]: {ex.Message}");
+            Console.ResetColor();
+        }
+
     }
 }
