@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
+using static System.Collections.Specialized.BitVector32;
 
 namespace Payload; // For logging;  https://learn.microsoft.com/en-us/dotnet/core/extensions/logging?tabs=command-line
                    // https://learn.microsoft.com/en-us/answers/questions/1377949/logging-in-c-to-a-text-file
@@ -47,14 +48,15 @@ internal class Payload
     private static ushort recieveSequenceCount = 0;
     private static ushort transmitSequenceCount = 0;
 
+    private static ushort actionCount = 0; // For tracking actions logged
+
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
 
     static async Task<int> Main(string[] args)
     {
-
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
-        Console.WriteLine("████████████████████████ ~ Payload ~ ████████████████████████");
+        Console.WriteLine("████████████████████████ ~ Payload ~ █████████████████████████████");
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
 
         // Get the localhost ip address
@@ -85,6 +87,27 @@ internal class Payload
         Console.Write("Press any key to exit");
         Console.ReadKey();
         return 0;
+    }
+
+    private static void LoggingHandler(Request request)
+    {
+        string logFilePath = Path.Combine(AppContext.BaseDirectory, "logfile.txt");
+
+        try
+        {
+            // Append the message with a timestamp
+            using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
+            {
+                sw.WriteLine(request.ToString());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[LOGGING ERROR]: {ex.Message}");
+            Console.ResetColor();
+        }
+
     }
 
     private static void RequestHandler(Request request, CancellationToken cancelToken)
@@ -135,6 +158,7 @@ internal class Payload
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
                 RecieveQueue.Add(recievedRequest, cancelToken);
+                LoggingHandler(recievedRequest);
                 //TransmitQueue.Add(AcknowledgeReport(), cancelToken);
 
             }
@@ -161,10 +185,10 @@ internal class Payload
         listener.Shutdown(SocketShutdown.Both);
     }
 
-    // private static Report AcknowledgeReport()
-    // {
-    // Create packet with service/subservice: Successful acceptance verification
-    //   return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>());
+   // private static Report AcknowledgeReport()
+   // {
+        // Create packet with service/subservice: Successful acceptance verification
+     //   return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>());
     //}
 
 }

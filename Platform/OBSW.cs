@@ -162,7 +162,7 @@ internal class PlatformOBC
 
     }
 
-    private static async Task CommunicationSession(CancellationToken cancelToken)
+private static async Task CommunicationSession(CancellationToken cancelToken)
     {
         // Start server
 
