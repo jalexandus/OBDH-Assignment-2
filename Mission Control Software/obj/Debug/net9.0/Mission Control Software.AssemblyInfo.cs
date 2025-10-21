@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Mission Control Software")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2e909b306b90031da6a2ad0a5052d28c2c2a2083")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1288899b0e2c2ab657f63f691674f8749dba60e4")]
 [assembly: System.Reflection.AssemblyProductAttribute("Mission Control Software")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Mission Control Software")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
