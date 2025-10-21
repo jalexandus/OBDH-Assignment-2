@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "KVPOSLJ6sc0=",
+  "dgSpecHash": "dU/dEb//7dk=",
   "success": true,
-  "projectFilePath": "C:\\Users\\jonat\\Source\\Repos\\OBDH-Assignment-2\\Mission Control Software\\Mission Control Software.csproj",
+  "projectFilePath": "C:\\Users\\jonat\\source\\repos\\OBDH-Assignment-2\\Mission Control Software\\Mission Control Software.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\jonat\\.nuget\\packages\\outparser\\1.1.1\\outparser.1.1.1.nupkg.sha512"
   ],

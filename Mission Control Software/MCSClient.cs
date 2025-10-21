@@ -160,7 +160,7 @@ internal class MCSCLient
                 byte[] messageBytes = nextRequest.Serialize();
                 await client.SendAsync(messageBytes, SocketFlags.None);
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[TX]: {nextRequest.ToString()}");
+                Console.WriteLine($"[MCS -> OBC] TX: {nextRequest.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);
@@ -176,7 +176,7 @@ internal class MCSCLient
 
                 recieveSequenceCount++;
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine($"[RX]: {telemetry.ToString()}");
+                Console.WriteLine($"[MCS <- OBC] RX: {telemetry.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);

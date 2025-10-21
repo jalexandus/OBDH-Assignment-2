@@ -11,6 +11,11 @@
         "Path": "..\\Platform\\Platform.csproj",
         "Action": "Start",
         "DebugTarget": "Platform"
+      },
+      {
+        "Path": "..\\Payload\\Payload.csproj",
+        "Action": "Start",
+        "DebugTarget": "Payload"
       }
     ]
   }
