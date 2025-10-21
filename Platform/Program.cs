@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -57,12 +58,19 @@ internal class PlatformOBC
     }
 
     private static IPEndPoint ipEndPoint;
+    private static IPEndPoint ipEndPoint2;
 
-    private static ushort recieveSequenceCount = 0;
-    private static ushort transmitSequenceCount = 0;
+    private static ushort recieveSequenceCount = 0; // MCS -> OBC
+    private static ushort transmitSequenceCount = 0; // OBC -> MCS
+
+    private static ushort recieveSequenceCount2 = 0; // Payload -> OBC
+    private static ushort transmitSequenceCount2 = 0; // OBC -> Payload
 
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+
+    private static BlockingCollection<Request> TransmitQueue2 = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+    private static BlockingCollection<Report> RecieveQueue2 = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
 
     static long unix_time = 0;              // [s] Unix timestamp (UTC)
 
@@ -84,11 +92,16 @@ internal class PlatformOBC
 
         Console.WriteLine($"Server IP address: {serverIpAddress.ToString()}"); // print the server ip address
 
-        ipEndPoint = new(serverIpAddress, 11_000);
+        ipEndPoint = new(serverIpAddress, 11_000); 
+        ipEndPoint2 = new(serverIpAddress, 12_000); // For payload
 
-        // Start the communcation task
+        // Start the communication task with MCS
         var cts = new CancellationTokenSource();
         var commTask = CommunicationSession(cts.Token);
+
+        // Start the communcation task with Payload
+        var cts2 = new CancellationTokenSource();
+        var commTask2 = PayloadCommunicationSession(serverIpAddress, cts2.Token);
 
         // command interpreter 
         // Loops through the queue of received commands and executes the ones that are due.
@@ -99,6 +112,13 @@ internal class PlatformOBC
         }
         await commTask; // Pause execution
 
+        while (!cts2.IsCancellationRequested)
+        {
+            Request nextRequest2 = TransmitQueue2.Take(cts2.Token);
+            PayloadRequestHandler(nextRequest2, cts2.Token);
+        }
+        await commTask2; // Pause execution
+
         // Exit
         Console.Write("Press any key to exit");
         Console.ReadKey();
@@ -107,12 +127,13 @@ internal class PlatformOBC
 
     private static void RequestHandler(Request request, CancellationToken cancelToken)
     {
-        switch (request.ServiceType) 
-        { 
+        switch (request.ServiceType)
+        {
             case 2:
-            string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
-            Console.WriteLine("Recieved string:" + message);
-            break;
+                string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
+                Console.WriteLine("Recieved string:" + message);
+                // CommandHandlerPayload(message); // Forward to payload request handler 
+                break;
             case 9:
                 if (request.ServiceSubtype == 4)
                 {
@@ -121,14 +142,14 @@ internal class PlatformOBC
                 }
                 else return;
 
-        default:
-            TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-            return;
+            default:
+                TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                return;
         }
         TransmitQueue.Add(CompletedCommandReport(), cancelToken);
     }
 
-    private static async Task CommunicationSession(CancellationToken cancelToken)
+private static async Task CommunicationSession(CancellationToken cancelToken)
     {
         // Start server
 
@@ -156,8 +177,9 @@ internal class PlatformOBC
 
                 if (recievedRequest.SequenceControl == recieveSequenceCount++)
                 {
-                    RecieveQueue.Add(recievedRequest, cancelToken);         // add request to queue
-                    TransmitQueue.Add(AcknowledgeReport(), cancelToken);    // send acknowledgement
+                    RecieveQueue.Add(recievedRequest, cancelToken);
+                    TransmitQueue.Add(AcknowledgeReport(), cancelToken);
+                    TransmitQueue2.Add(recievedRequest, cancelToken); // Forward to OBC-Payload transmit queue (just to check if message is forwarded)
                 }
                 else {
                     TransmitQueue.Add(InvalidCommandReport(), cancelToken);
@@ -174,7 +196,7 @@ internal class PlatformOBC
                 Report nextReport = TransmitQueue.Take(cancelToken);
                 await handler.SendAsync(nextReport.Serialize(), 0);
 
-                Console.WriteLine($"Sent acknowledgment: ");
+                Console.WriteLine($"[OBC -> MCS] Sent acknowledgment: ");
                 Console.ForegroundColor = ConsoleColor.Blue;
                 Console.WriteLine(nextReport.ToString());
                 Console.ForegroundColor = ConsoleColor.White;
