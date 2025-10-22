@@ -135,24 +135,35 @@ internal class PlatformOBC
 
     private static void RequestHandler(Request request, CancellationToken cancelToken)
     {
+        // -------------------- Request routing --------------------
+
         switch (request.ApplicationID)
         {
-            case 0: // Application: OBSW
+            // Application: OBSW
+            case 0: 
                 break;
-            case 1: // Application: PayloadSW
+
+            // Application: PayloadSW
+            case 1: 
                 Console.WriteLine("Forwarding request to payload");
                 MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
                 return;
         }
+
+        // -------------------- Service/subservice --------------------
+
         switch (request.ServiceType)
         {
+            // Recieving a string 
             case 2:
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string: " + message);
                 // CommandHandlerPayload(message); // Forward to payload request handler 
                 break;
-            case 9:
-                if (request.ServiceSubtype == 4)
+
+            // Time services 
+            case 9: 
+                if (request.ServiceSubtype == 4) // Set OBT
                 {
                     long newTime = BitConverter.ToInt64(request.Data);
                     DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
@@ -162,6 +173,8 @@ internal class PlatformOBC
                 }
                 else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 return;
+
+            // Scheduling commands
             case 11:
                 if (request.ServiceSubtype == 4)
                 {
@@ -173,7 +186,7 @@ internal class PlatformOBC
                 else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 return;
 
-
+            // Default send InvalidCommandReport
             default:
                 TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 return;
@@ -315,6 +328,7 @@ internal class PlatformOBC
         client.Shutdown(SocketShutdown.Both);
     }
 
+    // --------------------- Reports -----------------------
     private static Report AcknowledgeReport()
     {
         // Create packet with service/subservice: Successful acceptance verification
@@ -330,6 +344,13 @@ internal class PlatformOBC
         // Create packet with service/subservice: Failed start of execution
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
+
+    private static Report TelemetryReport()
+    {
+
+    }
+
+    // ----------------- On-board functions -----------------
 
     // Returns the OBC time in unix seconds 
     private static long GetCurrentTime() => Interlocked.Read(ref unix_time);
@@ -359,15 +380,5 @@ internal class PlatformOBC
     {
 
     }
-    /*
-    private static void Schedule()
-    {
-
-        // Verify command isnt outdated
-        var deltaTime = GetCurrentTime() - DateTimeOffset.FromUnixTimeSeconds(recievedRequest.TimeStamp).ToUnixTimeSeconds();
-
-        if (deltaTime < +1 || true) // accept t+1 second overdueness
-    }
-    */
 }
 
