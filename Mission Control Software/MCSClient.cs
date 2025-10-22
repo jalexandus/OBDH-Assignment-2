@@ -136,82 +136,72 @@ internal class MCSCLient
 
         // Select command 
         if (input.args.Count == 0)
-            throw new Exception("Missing command after destination application.");
+            throw new Exception("Missing <command> after destination application.");
 
+        var culture = CultureInfo.CreateSpecificCulture("en-US");
         string command = input.args.Pop().ToLowerInvariant();
         Request TX_Pckt;
 
         switch (command)
         {
             case "send":
-                {
-                    string message = string.Join(" ",input.args); // Combine remaining args
-                    message.Trim();
-                    TX_Pckt = SendString(APID, message);
-                    break;
-                }
+                string message = string.Join(" ",input.args); // Combine remaining args
+                message.Trim();
+                TX_Pckt = SendStringRequest(APID, message);
+                break;
 
             case "update-obt":
-                {
-                    if (input.args.Count == 0)
-                        throw new Exception("Missing time argument for update-obt.");
+                if (input.args.Count == 0)
+                    throw new Exception("Missing <UTC time> argument for update-obt.");
 
-                    string arg = input.args.Peek().ToLowerInvariant();
-                    if (arg == "now")
-                    {
-                        TX_Pckt = UpdateOBT(APID, DateTime.UtcNow);
-                    }
-                    else
-                    {
-                        // Reconstruct timestamp string
-                        string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
-                        var culture = CultureInfo.CreateSpecificCulture("en-US");
-                        DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
-                        TX_Pckt = UpdateOBT(APID, newOBT);
-                    }
-                    break;
+                string arg = input.args.Peek().ToLowerInvariant();
+                if (arg == "now")
+                {
+                    DateTime newOBT = DateTime.UtcNow;
                 }
+                else
+                {
+                    // Reconstruct timestamp string
+                    string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
+                    DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
+                }                    
+                TX_Pckt = UpdateOBTRequest(APID, DateTime.UtcNow);
+                break;
 
             case "schedule":
-                {
-                    if (input.args.Count < 2)
-                        throw new Exception("schedule requires <Application> <Command> (<Arguments>)");
+                if (input.args.Count < 2)
+                    throw new Exception("schedule requires: <Application> <Command> (<Arguments>)");
 
-                    Request request = CommandHandler(input);
-                    // Extract schedule time
-                    
+                Request request = CommandHandler(input);
 
-                    Console.WriteLine($"Input time to schedule comman for: ");
+                // Extract schedule time                    
+                Console.WriteLine($"Input time to schedule command for: ");
 
-                    var culture = CultureInfo.CreateSpecificCulture("en-US");
-                    DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
+                DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
 
-                    TX_Pckt = Schedule(APID, scheduleTime, request);
-                    break;
-                }
+                TX_Pckt = ScheduleRequest(APID, scheduleTime, request);
+                break;
 
             case "hk":
-                {
-                    if (input.args.Count < 1)
-                        throw new Exception("hk requires <Application> <Command> (<ON/OFF>");
-                    string stateString = input.args.Pop().ToUpperInvariant();
-                    bool state;
+                if (input.args.Count < 1)
+                    throw new Exception("hk requires <Application> <Command> (<ON/OFF>");
+                string stateString = input.args.Pop().ToUpperInvariant();
+                bool state;
 
-                    switch (stateString)
-                    { 
-                        case "OFF":
-                            state = false;
-                            break;
+                switch (stateString)
+                { 
+                    case "OFF":
+                        state = false;
+                        break;
 
-                        case "ON":
-                            state = true;
-                            break;
-                        default:
-                            throw new Exception($"Input is either ON or OFF");
-                    }
-                    TX_Pckt = CyclicHKEnableRequest(APID, state);
-                    break;
+                    case "ON":
+                        state = true;
+                        break;
+                    default:
+                        throw new Exception($"Input is either 'ON' or 'OFF'");
                 }
+                TX_Pckt = CyclicHKEnableRequest(APID, state);
+                break;
 
             default:
                 throw new Exception($"'{command}' is not a recognized command.");
@@ -331,7 +321,7 @@ internal class MCSCLient
 
         Console.ForegroundColor = ConsoleColor.White;
     }
-    private static Request SendString(byte applicationID, string message)
+    private static Request SendStringRequest(byte applicationID, string message)
     {
         // Convert to Unix time in seconds
         long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
@@ -345,7 +335,7 @@ internal class MCSCLient
         byte[] data = Encoding.UTF8.GetBytes(message);
         return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
     }
-    private static Request UpdateOBT(byte applicationID, DateTime newOBT)
+    private static Request UpdateOBTRequest(byte applicationID, DateTime newOBT)
     {
         // Set service and subservice type
         const byte serviceType = 9;
@@ -358,7 +348,7 @@ internal class MCSCLient
     }
 
     //  Insert activities into the time-based schedule
-    private static Request Schedule(byte applicationID, DateTime scheduleTime, Request payloadPacket) // 
+    private static Request ScheduleRequest(byte applicationID, DateTime scheduleTime, Request payloadPacket) // 
     {
         // Set service and subservice type
         const byte serviceType = 11;

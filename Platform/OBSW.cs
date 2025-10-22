@@ -24,51 +24,48 @@ internal class PlatformOBC
 
     public struct Parameter
     {
-        public object Value { get; }
+        public object Value { get; set; }
         public Type Type { get; }
+        public string Label { get; }
 
-        public Parameter(object value)
+        public Parameter(string label, object value)
         {
+            Label = label;
             Value = value;
             Type = value?.GetType() ?? typeof(object);
         }
     }
 
     private static readonly List<Parameter> HousekeepingParameters = new List<Parameter>
-    {
-        // ---- System Time ----
-        new Parameter((long)0),             // unix_time [s] Unix timestamp (UTC)
+{
+    // ---- System Time ----
+    new Parameter("unix_time [s] Unix timestamp (UTC)", (long)0),
 
-        // ---- Power ----
-        new Parameter((float)0.0),          // bus_voltage [V] Main power bus voltage
-        new Parameter((float)0.0),          // bus_current [A] Total current draw
-        new Parameter((float)0.0),          // battery_voltage [V]
-        new Parameter((float)0.0),          // battery_current [A]
-        new Parameter((float)0.0),          // battery_temperature [°C]
+    // ---- Power ----
+    new Parameter("bus_voltage [V] Main power bus voltage", (float)12.1f),
+    new Parameter("bus_current [A] Total current draw", (float)0.0f),
+    new Parameter("battery_voltage [V]", (float)0.0f),
+    new Parameter("battery_current [A]", (float)0.0f),
+    new Parameter("battery_temperature [°C]", (float)0.0f),
 
-        // ---- Thermal ----
-        new Parameter((float)0.0),          // obc_temperature [°C]
-        new Parameter((float)0.0),          // payload_temperature [°C]
-        new Parameter((float)0.0),          // eps_temperature [°C]
+    // ---- Thermal ----
+    new Parameter("obc_temperature [°C]", (float)0.0f),
+    new Parameter("payload_temperature [°C]", (float)0.0f),
+    new Parameter("eps_temperature [°C]", (float)0.0f),
 
-        // ---- Communication ----
-        new Parameter((ushort)0),           // uplink_count [#] Commands received
-        new Parameter((ushort)0),           // downlink_count [#] Packets transmitted
-        new Parameter((byte)0),             // last_command_status 0=OK, 1=ERR, 2=UNKNOWN
-        new Parameter((byte)0),             // comm_status Bit flags (bit0: TX on, bit1: RX on, etc.)
+    // ---- Communication ----
+    new Parameter("uplink_count [#] Commands received", (ushort)0),
+    new Parameter("downlink_count [#] Packets transmitted", (ushort)0),
 
-        // ---- System Health ----
-        new Parameter((uint)0),             // uptime [s] Time since boot
-        new Parameter((ushort)0),           // reset_count [#] Number of system resets
-        new Parameter((byte)0),             // last_reset_reason Code: 0=power, 1=watchdog, 2=manual, etc.
+    // ---- System Health ----
+    new Parameter("uptime [s] Time since boot", (uint)0),
 
-        // ---- Payload ----
-        new Parameter((byte)0),             // payload_mode Current payload mode/state
-        new Parameter(false),               // payload_status Bit field for payload subsystems
+    // ---- Payload ----
+    new Parameter("payload_mode Current payload mode/state", (byte)0),
 
-        // ---- ADCS ----
-        new Parameter((byte)0),             // adcs_mode
-    };
+    // ---- ADCS ----
+    new Parameter("adcs_mode", (byte)0),
+};
 
     private static IPEndPoint? ipEndPointSpaceLink;
     private static IPEndPoint? ipEndPointBusController;
@@ -85,6 +82,7 @@ internal class PlatformOBC
     private static PriorityQueue<Request, long> ScheduleQueue = new PriorityQueue<Request, long>();
 
     static long unix_time = 0; // [s] Unix timestamp (UTC)
+    static long boot_time = 0; // [s] Unix timestamp (UTC)
 
     static async Task<int> Main(string[] args)
     {
@@ -391,7 +389,11 @@ internal class PlatformOBC
         // Create a timer with a two second interval.
         onboardClock = new System.Timers.Timer(1000);
         // Hook up the Elapsed event for the timer. 
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time);};
+        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { 
+            System.Threading.Interlocked.Increment(ref unix_time);
+            System.Threading.Interlocked.Increment(ref boot_time);
+
+        };
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
     }
@@ -455,6 +457,42 @@ internal class PlatformOBC
         onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { TransmitQueue.Add(TelemetryReport(), clt); };
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
+    }
+
+    private static void UpdateHousekeepingParameters()
+    {
+        // ---- System Time ----
+        HousekeepingParameters[0].Value = GetCurrentTime(); // unix_time
+
+        // ---- Power ----
+        HousekeepingParameters[1].Value = /* bus_voltage */ 3.305f;
+        HousekeepingParameters[2].Value = /* bus_current */ 23.01f;
+        HousekeepingParameters[3].Value = /* battery_voltage */ 11.7f;
+        HousekeepingParameters[4].Value = /* battery_current */ 8.2f;
+        HousekeepingParameters[5].Value = /* battery_temperature */ 17.9f;
+
+        // ---- Thermal ----
+        HousekeepingParameters[6].Value = /* obc_temperature */ 63.7f;
+        HousekeepingParameters[7].Value = /* payload_temperature */ 11.1f;
+        HousekeepingParameters[8].Value = /* eps_temperature */ 0.0f;
+
+        // ---- Communication ----
+        HousekeepingParameters[9].Value = /* uplink_count */ 0;
+        HousekeepingParameters[10].Value = /* downlink_count */ 0;
+        HousekeepingParameters[11].Value = /* last_command_status */ (byte)0;
+        HousekeepingParameters[12].Value = /* comm_status */ (byte)0;
+
+        // ---- System Health ----
+        HousekeepingParameters[13].Value = /* uptime */ 0u;
+        HousekeepingParameters[14].Value = /* reset_count */ (ushort)0;
+        HousekeepingParameters[15].Value = /* last_reset_reason */ (byte)0;
+
+        // ---- Payload ----
+        HousekeepingParameters[16].Value = /* payload_mode */ (byte)0;
+        HousekeepingParameters[17].Value = /* payload_status */ false;
+
+        // ---- ADCS ----
+        HousekeepingParameters[18].Value = /* adcs_mode */ (byte)0;
     }
     private static void EventTelemetry()
     {
