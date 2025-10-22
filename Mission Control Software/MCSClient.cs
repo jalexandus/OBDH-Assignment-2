@@ -190,6 +190,29 @@ internal class MCSCLient
                     break;
                 }
 
+            case "hk":
+                {
+                    if (input.args.Count < 1)
+                        throw new Exception("hk requires <Application> <Command> (<ON/OFF>");
+                    string stateString = input.args.Pop().ToUpperInvariant();
+                    bool state;
+
+                    switch (stateString)
+                    { 
+                        case "OFF":
+                            state = false;
+                            break;
+
+                        case "ON":
+                            state = true;
+                            break;
+                        default:
+                            throw new Exception($"Input is either ON or OFF");
+                    }
+                    TX_Pckt = CyclicHKEnableRequest(APID, state);
+                    break;
+                }
+
             default:
                 throw new Exception($"'{command}' is not a recognized command.");
         }
@@ -278,7 +301,7 @@ internal class MCSCLient
         {
             case 1:
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[RX {source}] ACK: Command accepted successfully.");
+                Console.WriteLine($"[RX {source}] ACK: Command received successfully.");
                 break;
 
             case 2:
@@ -294,6 +317,10 @@ internal class MCSCLient
             case 4:
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[RX {source}] DONE: Command execution completed successfully.");
+                break;
+            case 10:
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[RX {source}] Failed routing verification report");
                 break;
 
             default:
@@ -345,6 +372,18 @@ internal class MCSCLient
         payloadPacket.TimeStamp = unixSecondsSchedule;
 
         return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
+    }
+    
+    private static Request CyclicHKEnableRequest(byte applicationID, bool enable)
+    {
+        // Set service and subservice type
+        const byte serviceType = 3;
+        const byte serviceSubtype = 5;
+
+        // Convert current time to Unix time in seconds
+        long unixSecondsCurrent = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, BitConverter.GetBytes(enable));
     }
 
     private static void LoggingHandler(Report report)
