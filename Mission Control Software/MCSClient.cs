@@ -29,7 +29,7 @@ internal class MCSCLient
     {
         const string configFilePath = "config.txt";
         string serverIpAddressString;
-        
+
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
         Console.WriteLine("████████████████ ~ LTU Mission Control software ~ ████████████████");
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
@@ -53,7 +53,7 @@ internal class MCSCLient
         // Get the localhost ip address
         var hostName = Dns.GetHostName();
         IPHostEntry localhost = Dns.GetHostEntry(hostName);
-        
+
         // This is the IP address of the local machine
         IPAddress localIpAddress = localhost.AddressList[0];
 
@@ -67,7 +67,7 @@ internal class MCSCLient
         {
             serverIpAddress = IPAddress.Parse(serverIpAddressString);
         }
-            
+
         Console.WriteLine("Client IP address: " + localIpAddress.ToString()); // print the local ip address
         Console.WriteLine("Server IP address: " + serverIpAddress.ToString()); // print the server ip address
 
@@ -87,7 +87,7 @@ internal class MCSCLient
             if (cmd.args.Count == 0) continue;
             else firstCommand = cmd.args.Peek();
 
-                
+
             if (firstCommand == "exit")
             {
                 cts.Cancel(); // Cancel the communcation task
@@ -145,7 +145,7 @@ internal class MCSCLient
         switch (command)
         {
             case "send":
-                string message = string.Join(" ",input.args); // Combine remaining args
+                string message = string.Join(" ", input.args); // Combine remaining args
                 message.Trim();
                 TX_Pckt = SendStringRequest(APID, message);
                 break;
@@ -164,7 +164,7 @@ internal class MCSCLient
                     // Reconstruct timestamp string
                     string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
                     DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
-                }                    
+                }
                 TX_Pckt = UpdateOBTRequest(APID, DateTime.UtcNow);
                 break;
 
@@ -189,7 +189,7 @@ internal class MCSCLient
                 bool state;
 
                 switch (stateString)
-                { 
+                {
                     case "OFF":
                         state = false;
                         break;
@@ -287,35 +287,41 @@ internal class MCSCLient
                 break;
         }
         // Interpret based on Service Subtype (PUS Service 1)
-        switch (report.ServiceSubtype)
+        int serviceType = report.ServiceType;
+        int subtype = report.ServiceSubtype;
+        switch ((serviceType, subtype))
         {
-            case 1:
+            case (1, 1):
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[RX {source}] ACK: Command received successfully.");
                 break;
 
-            case 2:
+            case (1, 2):
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[RX {source}] NACK: Command rejected or invalid.");
                 break;
 
-            case 3:
+            case (1, 3):
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[RX {source}] INFO: Command execution started.");
                 break;
 
-            case 4:
+            case (1, 4):
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[RX {source}] DONE: Command execution completed successfully.");
                 break;
-            case 10:
+            case (1, 5):
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[RX {source}] Failed routing verification report");
                 break;
-
+            case (3, 25):
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine($"[RX {source}] Cyclic Housekeeping parameters report");
+                PrintParameters(report);
+                break;
             default:
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"[RX {source}] Unknown verification report (Subtype {report.ServiceSubtype}).");
+                Console.WriteLine($"[RX {source}] Unknown report (Type {serviceType}, Subtype {subtype}).");
                 break;
         }
 
@@ -363,7 +369,7 @@ internal class MCSCLient
 
         return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
     }
-    
+
     private static Request CyclicHKEnableRequest(byte applicationID, bool enable)
     {
         // Set service and subservice type
@@ -395,5 +401,40 @@ internal class MCSCLient
             Console.ResetColor();
         }
 
+    }
+
+    private static void PrintParameters(Report report)
+    {
+        int dataLength = report.Data.Length;
+        int startIndex = 0;
+        // Mapping of ParameterID to label and unit
+        Dictionary<byte, (string Label, string Unit)> paramInfo = new()
+    {
+        { 0x00, ("unix_time", "s") },
+        { 0x01, ("bus_voltage", "V") },
+        { 0x02, ("bus_current", "A") },
+        { 0x03, ("battery_voltage", "V") },
+        { 0x04, ("battery_current", "A") },
+        { 0x05, ("battery_temperature", "°C") },
+        { 0x06, ("obc_temperature", "°C") },
+        { 0x07, ("payload_temperature", "°C") },
+        { 0x08, ("eps_temperature", "°C") },
+        { 0x09, ("uplink_count", "#") },
+        { 0x0A, ("downlink_count", "#") },
+        { 0x0B, ("uptime", "s") },
+        { 0x0C, ("payload_mode", "") },
+        { 0x0D, ("adcs_mode", "") }
+    };
+
+        while (startIndex < dataLength)
+        {
+            Common.Parameter param = new Common.Parameter(report.Data, startIndex);
+            startIndex += param.Length;
+
+            if (!paramInfo.TryGetValue(param.ID, out var info))
+                info = ($"ParameterID:{param.ID}", ""); // fallback if unknown
+
+            Console.WriteLine($"   {info.Label}: {param.Value} {info.Unit}");
+        }
     }
 }

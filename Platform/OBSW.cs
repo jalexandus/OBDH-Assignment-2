@@ -21,51 +21,37 @@ namespace PayloadSW;
 internal class PlatformOBC
 {
     private static System.Timers.Timer onboardClock;
-
-    public struct Parameter
+    private static System.Timers.Timer cyclicHKClocl;  
+    private static List<Common.Parameter> HousekeepingParameters = new List<Common.Parameter>
     {
-        public object Value { get; set; }
-        public Type Type { get; }
-        public string Label { get; }
+        // ---- System Time ----
+        new Common.Parameter((byte)0x00, (long)0), // unix_time [s] Unix timestamp (UTC)
 
-        public Parameter(string label, object value)
-        {
-            Label = label;
-            Value = value;
-            Type = value?.GetType() ?? typeof(object);
-        }
-    }
+        // ---- Power ----
+        new Common.Parameter((byte)0x01, (float)12.1f), // bus_voltage [V] Main power bus voltage
+        new Common.Parameter((byte)0x02, (float)0.0f),  // bus_current [A] Total current draw
+        new Common.Parameter((byte)0x03, (float)0.0f),  // battery_voltage [V]
+        new Common.Parameter((byte)0x04, (float)0.0f),  // battery_current [A]
+        new Common.Parameter((byte)0x05, (float)0.0f),  // battery_temperature [°C]
 
-    private static readonly List<Parameter> HousekeepingParameters = new List<Parameter>
-{
-    // ---- System Time ----
-    new Parameter("unix_time [s] Unix timestamp (UTC)", (long)0),
+        // ---- Thermal ----
+        new Common.Parameter((byte)0x06, (float)0.0f),  // obc_temperature [°C]
+        new Common.Parameter((byte)0x07, (float)0.0f),  // payload_temperature [°C]
+        new Common.Parameter((byte)0x08, (float)0.0f),  // eps_temperature [°C]
 
-    // ---- Power ----
-    new Parameter("bus_voltage [V] Main power bus voltage", (float)12.1f),
-    new Parameter("bus_current [A] Total current draw", (float)0.0f),
-    new Parameter("battery_voltage [V]", (float)0.0f),
-    new Parameter("battery_current [A]", (float)0.0f),
-    new Parameter("battery_temperature [°C]", (float)0.0f),
+        // ---- Communication ----
+        new Common.Parameter((byte)0x09, (ushort)0),   // uplink_count [#] Commands received
+        new Common.Parameter((byte)0x0A, (ushort)0),   // downlink_count [#] Packets transmitted
 
-    // ---- Thermal ----
-    new Parameter("obc_temperature [°C]", (float)0.0f),
-    new Parameter("payload_temperature [°C]", (float)0.0f),
-    new Parameter("eps_temperature [°C]", (float)0.0f),
+        // ---- System Health ----
+        new Common.Parameter((byte)0x0B, (long)0),     // uptime [s] Time since boot
 
-    // ---- Communication ----
-    new Parameter("uplink_count [#] Commands received", (ushort)0),
-    new Parameter("downlink_count [#] Packets transmitted", (ushort)0),
+        // ---- Payload ----
+        new Common.Parameter((byte)0x0C, (byte)0),     // payload_mode Current payload mode/state
 
-    // ---- System Health ----
-    new Parameter("uptime [s] Time since boot", (uint)0),
-
-    // ---- Payload ----
-    new Parameter("payload_mode Current payload mode/state", (byte)0),
-
-    // ---- ADCS ----
-    new Parameter("adcs_mode", (byte)0),
-};
+        // ---- ADCS ----
+        new Common.Parameter((byte)0x0D, (byte)0),     // adcs_mode
+    };
 
     private static IPEndPoint? ipEndPointSpaceLink;
     private static IPEndPoint? ipEndPointBusController;
@@ -161,55 +147,35 @@ internal class PlatformOBC
 
         // -------------------- Service/subservice --------------------
 
-        switch (request.ServiceType)
+        switch ((request.ServiceType, request.ServiceSubtype))
         {
             // Recieving a string 
-            case 2:
+            case (2,1):
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string: " + message);
                 // CommandHandlerPayload(message); // Forward to payload request handler 
                 break;
 
             // Housekeeping
-            case 3:
-                switch (request.ServiceSubtype)
-                {
-                    // Start periodic housekeeping
-                    
-                    case 5:
-                        if(BitConverter.ToBoolean(request.Data,0)) StartPeriodicTelemetry(1000, cancelToken);
-                         // ELSE Turn off cyclic housekeeping
-                         break;
-                    default:
-                        TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                        break;
-                }
+            case (3,5):
+                if (BitConverter.ToBoolean(request.Data, 0)) StartPeriodicTelemetry(5000, cancelToken);
+                // ELSE Turn off cyclic housekeeping
                 break;
 
             // Time services 
-            case 9: 
-                if (request.ServiceSubtype == 4) // Set OBT
-                {
-                    long newTime = BitConverter.ToInt64(request.Data);
-                    DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
-                    Console.WriteLine($"Set OBT to: {OBT.ToString()}");
-                    SetCurrentTime(newTime);
-                    break;
-                }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+            case (9,4):
+                long newTime = BitConverter.ToInt64(request.Data);
+                DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
+                Console.WriteLine($"Set OBT to: {OBT.ToString()}");
+                SetCurrentTime(newTime);
+                break;
 
             // Scheduling commands
-            case 11:
-                if (request.ServiceSubtype == 4)
-                {
-                    Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
-                    ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
-                    Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
-                    break;
-                }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+            case (11, 4):
+                Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
+                ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
+                Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
+                break;
 
             // Default send InvalidCommandReport
             default:
@@ -372,7 +338,8 @@ internal class PlatformOBC
 
     private static Report TelemetryReport()
     {
-        byte[] data = SerializeParameterList(HousekeepingParameters);
+        UpdateHousekeepingParameters();
+        byte[] data = SerializeParameterList();
         // Create packet with service/subservice: housekeeping parameter report
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
     }
@@ -386,8 +353,10 @@ internal class PlatformOBC
     // Based on the following example: https://learn.microsoft.com/en-us/dotnet/api/system.timers.timer?view=net-9.0
     private static void StartClock()
     {
-        // Create a timer with a two second interval.
+        // Create a timer with a one second interval.
         onboardClock = new System.Timers.Timer(1000);
+        // Create a timer with a ten second interval.
+        cyclicHKClocl = new System.Timers.Timer(10000);
         // Hook up the Elapsed event for the timer. 
         onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { 
             System.Threading.Interlocked.Increment(ref unix_time);
@@ -398,61 +367,27 @@ internal class PlatformOBC
         onboardClock.Enabled = true;
     }
 
-    private static byte[] SerializeParameterList(List<Parameter> parameters )
+    private static byte[] SerializeParameterList()
     {
         List<byte> buffer = new List<byte>();
 
-        foreach (Parameter param in parameters)
+        foreach (Common.Parameter param in HousekeepingParameters)
         {
-            object val = param.Value;
-            byte[] parameterBytes;
-
-            switch (val)
-            {
-                case byte b:
-                    parameterBytes = new[] { b };
-                    break;
-                case bool flag:
-                    parameterBytes = BitConverter.GetBytes(flag);
-                    break;
-                case short s:
-                    parameterBytes = BitConverter.GetBytes(s);
-                    break;
-                case ushort us:
-                    parameterBytes = BitConverter.GetBytes(us);
-                    break;
-                case int i:
-                    parameterBytes = BitConverter.GetBytes(i);
-                    break;
-                case uint ui:
-                    parameterBytes = BitConverter.GetBytes(ui);
-                    break;
-                case long l:
-                    parameterBytes = BitConverter.GetBytes(l);
-                    break;
-                case ulong ul:
-                    parameterBytes = BitConverter.GetBytes(ul);
-                    break;
-                case float f:
-                    parameterBytes = BitConverter.GetBytes(f);
-                    break;
-                case double d:
-                    parameterBytes = BitConverter.GetBytes(d);
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unsupported parameter type: {val.GetType().Name}");
-            }
-
-            buffer.AddRange(parameterBytes);
+            buffer.AddRange(param.Serialize());
         }
 
         return buffer.ToArray();
     }
 
-    private static void StartPeriodicTelemetry(int period, CancellationToken clt)
+    private static void StartPeriodicTelemetry(CancellationToken clt)
     {
-        // Create a timer with a two second interval.
-        onboardClock = new System.Timers.Timer(period);
+        // Hook up the Elapsed event for the timer. 
+        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { TransmitQueue.Add(TelemetryReport(), clt); };
+        onboardClock.AutoReset = true;
+        onboardClock.Enabled = true;
+    }
+    private static void StartPeriodicTelemetry(CancellationToken clt)
+    {
         // Hook up the Elapsed event for the timer. 
         onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { TransmitQueue.Add(TelemetryReport(), clt); };
         onboardClock.AutoReset = true;
@@ -462,41 +397,32 @@ internal class PlatformOBC
     private static void UpdateHousekeepingParameters()
     {
         // ---- System Time ----
-        HousekeepingParameters[0].Value = GetCurrentTime(); // unix_time
+        HousekeepingParameters[0].Value = GetCurrentTime(); // unix_time [s]
 
         // ---- Power ----
-        HousekeepingParameters[1].Value = /* bus_voltage */ 3.305f;
-        HousekeepingParameters[2].Value = /* bus_current */ 23.01f;
-        HousekeepingParameters[3].Value = /* battery_voltage */ 11.7f;
-        HousekeepingParameters[4].Value = /* battery_current */ 8.2f;
-        HousekeepingParameters[5].Value = /* battery_temperature */ 17.9f;
+        HousekeepingParameters[1].Value = 3.305f;  // bus_voltage [V]
+        HousekeepingParameters[2].Value = 23.01f;  // bus_current [A]
+        HousekeepingParameters[3].Value = 11.7f;   // battery_voltage [V]
+        HousekeepingParameters[4].Value = 8.2f;    // battery_current [A]
+        HousekeepingParameters[5].Value = 17.9f;   // battery_temperature [°C]
 
         // ---- Thermal ----
-        HousekeepingParameters[6].Value = /* obc_temperature */ 63.7f;
-        HousekeepingParameters[7].Value = /* payload_temperature */ 11.1f;
-        HousekeepingParameters[8].Value = /* eps_temperature */ 0.0f;
+        HousekeepingParameters[6].Value = 63.7f;   // obc_temperature [°C]
+        HousekeepingParameters[7].Value = 11.1f;   // payload_temperature [°C]
+        HousekeepingParameters[8].Value = 0.0f;    // eps_temperature [°C]
 
         // ---- Communication ----
-        HousekeepingParameters[9].Value = /* uplink_count */ 0;
-        HousekeepingParameters[10].Value = /* downlink_count */ 0;
-        HousekeepingParameters[11].Value = /* last_command_status */ (byte)0;
-        HousekeepingParameters[12].Value = /* comm_status */ (byte)0;
+        HousekeepingParameters[9].Value = recieveSequenceCount; // uplink_count [#]
+        HousekeepingParameters[10].Value = transmitSequenceCount; // downlink_count [#]
 
         // ---- System Health ----
-        HousekeepingParameters[13].Value = /* uptime */ 0u;
-        HousekeepingParameters[14].Value = /* reset_count */ (ushort)0;
-        HousekeepingParameters[15].Value = /* last_reset_reason */ (byte)0;
+        HousekeepingParameters[11].Value = (long) boot_time;        // uptime [s]
 
         // ---- Payload ----
-        HousekeepingParameters[16].Value = /* payload_mode */ (byte)0;
-        HousekeepingParameters[17].Value = /* payload_status */ false;
+        HousekeepingParameters[12].Value = (byte)0;   // payload_mode
 
         // ---- ADCS ----
-        HousekeepingParameters[18].Value = /* adcs_mode */ (byte)0;
-    }
-    private static void EventTelemetry()
-    {
-
+        HousekeepingParameters[13].Value = (byte)0;   // adcs_mode
     }
 }
 
