@@ -1,19 +1,21 @@
 ﻿using Common;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
-using System.Collections.Generic;
-using System.ComponentModel.Design;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace PayloadSW;
 
@@ -22,6 +24,12 @@ namespace PayloadSW;
 internal class PlatformOBC
 {
     private static System.Timers.Timer onboardClock;
+
+    public enum Mode
+    {
+        SAFE = 0,
+        INERTIAL = 1,        
+    };
 
     private struct Parameters
     {
@@ -74,6 +82,9 @@ internal class PlatformOBC
     private static PriorityQueue<Request, long> ScheduleQueue = new PriorityQueue<Request, long>();
 
     static long unix_time = 0; // [s] Unix timestamp (UTC)
+
+    static Mode currentModeOBC = Mode.SAFE;
+    static Mode currentModePayload = Mode.SAFE;
 
     static async Task<int> Main(string[] args)
     {
@@ -147,7 +158,7 @@ internal class PlatformOBC
             case 1: 
                 Console.WriteLine("Forwarding request to payload");
                 MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
-                return;
+                return;  
         }
 
         // -------------------- Service/subservice --------------------
@@ -160,37 +171,62 @@ internal class PlatformOBC
                 Console.WriteLine("Recieved string: " + message);
                 // CommandHandlerPayload(message); // Forward to payload request handler 
                 break;
-
+            // Mode management
+            case 8:
+                if (request.ServiceSubtype == 1 && request.ApplicationID == 0)
+                {
+                    Mode newMode = (Mode)request.Data[0];
+                    currentModeOBC = ModeSwitch(newMode);
+                    break;
+                }
+                else if (request.ServiceSubtype == 1 && request.ApplicationID == 1)
+                {
+                    Mode newMode = (Mode)request.Data[0];
+                    currentModePayload = ModeSwitch(newMode);
+                    break;
+                }
+                else if (request.ServiceSubtype == 2 && request.ApplicationID == 0)
+                {
+                    break;
+                }
+                else if (request.ServiceSubtype == 2 && request.ApplicationID == 1)
+                {
+                    break;
+                }
+                else
+                {
+                    break;
+                }
             // Time services 
-            case 9: 
-                if (request.ServiceSubtype == 4) // Set OBT
-                {
-                    long newTime = BitConverter.ToInt64(request.Data);
-                    DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
-                    Console.WriteLine($"Set OBT to: {OBT.ToString()}");
-                    SetCurrentTime(newTime);
-                    break;
-                }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+            case 9:
+                        if (request.ServiceSubtype == 4) // Set OBT
+                        {
+                            long newTime = BitConverter.ToInt64(request.Data);
+                            DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
+                            Console.WriteLine($"Set OBT to: {OBT.ToString()}");
+                            SetCurrentTime(newTime);
+                            break;
+                        }
+                        else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                        return;
 
-            // Scheduling commands
-            case 11:
-                if (request.ServiceSubtype == 4)
-                {
-                    Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
-                    ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
-                    Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
-                    break;
-                }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+                    // Scheduling commands
+                    case 11:
+                        if (request.ServiceSubtype == 4)
+                        {
+                            Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
+                            ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
+                            Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
+                            break;
+                        }
+                        else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                        return;
 
-            // Default send InvalidCommandReport
-            default:
-                TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
-        }
+                    // Default send InvalidCommandReport
+                    default:
+                        TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                        return;
+                    }
         TransmitQueue.Add(CompletedCommandReport(), cancelToken);
     }
 
@@ -345,10 +381,16 @@ internal class PlatformOBC
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
 
-    private static Report TelemetryReport()
+    private static Report InvalidModeChangeReport()
     {
-
+        // Create packet with service/subservice: Failed start of execution
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 8, 3, Array.Empty<byte>());
     }
+
+    //private static Report TelemetryReport()
+    // {
+
+    //}
 
     // ----------------- On-board functions -----------------
 
@@ -362,17 +404,32 @@ internal class PlatformOBC
         // Create a timer with a two second interval.
         onboardClock = new System.Timers.Timer(1000);
         // Hook up the Elapsed event for the timer. 
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time);};
+        onboardClock.Elapsed += (object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time);};
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
     }
+    private static Mode ModeSwitch(Mode newMode)
+    {
+        switch (newMode)
+        {
+            case Mode.SAFE:
+                Console.WriteLine("Mode set to: SAFE");
+                return Mode.SAFE;
 
+            case Mode.INERTIAL:
+                Console.WriteLine("Mode set to: INERTIAL");
+                return Mode.INERTIAL;
+            default:
+                return Mode.SAFE;
+        }
+        
+    }
     private static void StartPeriodicTelemetry(int period)
     {
         // Create a timer with a two second interval.
         onboardClock = new System.Timers.Timer(period);
         // Hook up the Elapsed event for the timer. 
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { EventTelemetry(); };
+        onboardClock.Elapsed += (object source, ElapsedEventArgs e) => { EventTelemetry(); };
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
     }

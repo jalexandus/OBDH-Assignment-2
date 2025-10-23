@@ -14,6 +14,7 @@ using System.Runtime.Intrinsics.Wasm;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using static Mission_Control_Software.MCSCLient;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Mission_Control_Software;
@@ -25,6 +26,11 @@ internal class MCSCLient
     private static BlockingCollection<Request> OutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
 
+    public enum Mode
+        {
+          SAFE = 0,
+          INERTIAL = 1,
+        };
     static async Task<int> Main(string[] args)
     {
         const string configFilePath = "config.txt";
@@ -190,6 +196,41 @@ internal class MCSCLient
                     break;
                 }
 
+            case "mode":
+                {
+                    string action = input.args.Pop().ToLowerInvariant();
+                    string? modeString = input.args.Pop();
+                    if (!Enum.TryParse<Mode>(modeString, true, out Mode parsedMode))
+                    {
+                        throw new Exception("Mode not found. Possible modes: safe, inertial.");
+                    }
+                    byte mode = (byte)parsedMode.GetHashCode();
+
+                    if (action == "set")
+                    {
+                        // Send mode change request
+                        TX_Pckt = setMode(APID, mode);
+                        break;
+                    }
+                    else if (action == "get")
+                    {
+                        // Send mode get request
+                        TX_Pckt = getMode(APID, mode);
+                        break;
+                    }
+                    else
+                    {
+                        throw new Exception("Action not found. Possible actions: set, get.");
+                    }
+                    
+                }
+            case "take-image":
+                {
+                    byte action = 1;
+                    TX_Pckt = payloadAction(APID, action);
+                    break;
+                }
+
             default:
                 throw new Exception($"'{command}' is not a recognized command.");
         }
@@ -345,6 +386,53 @@ internal class MCSCLient
         payloadPacket.TimeStamp = unixSecondsSchedule;
 
         return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
+    }
+
+    // Set mode
+    private static Request setMode(byte applicationID, byte mode)
+    {
+        // Convert to Unix time in seconds
+        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        byte[] modeBytes = new byte[] {mode};
+
+        // Set service and subservice type
+        const byte serviceType = 8;
+        const byte serviceSubtype = 1;
+
+        // Encode message data;
+        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, modeBytes);
+    }
+
+    // Retrieve current mode
+    private static Request getMode(byte applicationID, byte mode)
+    {
+        // Convert to Unix time in seconds
+        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        byte[] modeBytes = new byte[] {mode};
+
+        // Set service and subservice type
+        const byte serviceType = 8;
+        const byte serviceSubtype = 2;
+
+        // Encode message data;
+        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, modeBytes);
+    }
+
+    private static Request payloadAction(byte applicationID, byte action)
+    {
+        // Convert to Unix time in seconds
+        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        byte[] actionBytes = new byte[] { action };
+
+        // Set service and subservice type
+        const byte serviceType = 8;
+        const byte serviceSubtype = 3;
+
+        // Encode message data;
+        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, actionBytes);
     }
 
     private static void LoggingHandler(Report report)

@@ -50,8 +50,19 @@ internal class Payload
 
     private static ushort actionCount = 0; // For tracking actions logged
 
+    public enum Mode
+    {
+        SAFE = 0,
+        INERTIAL = 1,
+    };
+
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
+
+    static Mode currentMode = Mode.SAFE;
+    static bool modeFlag = false;
+
+    // static long unix_time = 0; // [s] Unix timestamp (UTC)
 
     static async Task<int> Main(string[] args)
     {
@@ -79,7 +90,15 @@ internal class Payload
         while (!cts.IsCancellationRequested)
         {
             Request nextRequest = RecieveQueue.Take(cts.Token);
-            RequestHandler(nextRequest, cts.Token);
+            RequestHandlerStatus(nextRequest, cts.Token);
+            if (modeFlag)
+            {
+                RequestHandler(nextRequest, cts.Token);
+            }
+            else
+            {
+                continue;
+            }
         }
         await commTask; // Pause execution
 
@@ -89,42 +108,34 @@ internal class Payload
         return 0;
     }
 
-    private static void LoggingHandler(Request request)
+    private static bool RequestHandlerStatus(Request request, CancellationToken cancelToken)
     {
-        string logFilePath = Path.Combine(AppContext.BaseDirectory, "logfile.txt");
-
-        try
+        // Check if payload is in safemode
+        if (modeFlag == false && (request.ServiceType == 8 && request.ServiceSubtype == 1))
         {
-            // Append the message with a timestamp
-            using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
-            {
-                sw.WriteLine(request.ToString());
-            }
+            modeFlag = true; // Accept the possibility to switch from SAFE mode
         }
-        catch (Exception ex)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[LOGGING ERROR]: {ex.Message}");
-            Console.ResetColor();
-        }
-
+        return modeFlag; 
     }
 
     private static void RequestHandler(Request request, CancellationToken cancelToken)
     {
-        switch (request.ServiceType)
+        switch ((request.ServiceType, request.ServiceSubtype))
         {
-            case 2:
+            case (2,1):
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string:" + message);
                 break;
-            case 9:
-                if (request.ServiceSubtype == 4)
-                {
+            // Mode management
+            case (8,1):
+                Mode newMode = (Mode)request.Data[0];
+                ModeSwitch(newMode);
+                break;
+            case (8,2):
                     break;
-                }
-                else return;
-
+            case (8,3):
+                executeAction(request);
+                break;
             default:
                 // TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 return;
@@ -158,8 +169,7 @@ internal class Payload
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
                 RecieveQueue.Add(recievedRequest, cancelToken);
-                LoggingHandler(recievedRequest);
-                //TransmitQueue.Add(AcknowledgeReport(), cancelToken);
+                //TransmitQueue.Add(AcknowledgeReport(), cancelToken); // ADD NEW ACTION REPORT
 
             }
         }, cancelToken);
@@ -185,10 +195,58 @@ internal class Payload
         listener.Shutdown(SocketShutdown.Both);
     }
 
-   // private static Report AcknowledgeReport()
-   // {
-        // Create packet with service/subservice: Successful acceptance verification
-     //   return new Report(GetCurrentTime(), transmitSequenceCount++, 1, 1, Array.Empty<byte>());
-    //}
+    private static void executeAction(Request request)
+    {
+        Random random = new Random();
+        int minValue = 5;
+        int maxValue = 15;
+        int randomNumber = random.Next(minValue, maxValue);
+        LoggingHandler(randomNumber, request);
+    }
+
+    private static void LoggingHandler(int actionTime, Request request)
+    {
+        string logFilePath = Path.Combine(AppContext.BaseDirectory, "logfile.txt");
+
+        try
+        {
+            // Append the message with a timestamp
+            using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
+            {
+                DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(request.TimeStamp);
+                sw.WriteLine(unixTime.ToString()+$": " + $"Time spent taking image: " + actionTime.ToString() + $" seconds");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[LOGGING ERROR]: {ex.Message}");
+            Console.ResetColor();
+        }
+
+    }
+
+    private static bool ModeSwitch(Mode newMode)
+    {
+        switch (newMode)
+        {
+            case Mode.SAFE:
+                Console.WriteLine("Payload OFF");
+                currentMode = newMode;
+                modeFlag = false;
+
+                return modeFlag;
+
+            case Mode.INERTIAL:
+                Console.WriteLine("Payload ON");
+                currentMode = newMode;
+                modeFlag = true;
+
+                return modeFlag;
+            default:
+                return false;
+        }
+        
+    }
 
 }
