@@ -1,17 +1,8 @@
 ﻿using Common;
-using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
-using System.Timers;
-using static System.Collections.Specialized.BitVector32;
 
 namespace Payload; // For logging;  https://learn.microsoft.com/en-us/dotnet/core/extensions/logging?tabs=command-line
                    // https://learn.microsoft.com/en-us/answers/questions/1377949/logging-in-c-to-a-text-file
@@ -115,27 +106,27 @@ internal class Payload
         {
             modeFlag = true; // Accept the possibility to switch from SAFE mode
         }
-        return modeFlag; 
+        return modeFlag;
     }
 
     private static void RequestHandler(Request request, CancellationToken cancelToken)
     {
         switch ((request.ServiceType, request.ServiceSubtype))
         {
-            case (2,1):
+            case (2, 1):
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string:" + message);
                 TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
                 break;
             // Mode management
-            case (8,1):
+            case (8, 1):
                 Mode newMode = (Mode)request.Data[0];
                 ModeSwitch(newMode, request);
                 TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
                 break;
-            case (8,2):
-                    break;
-            case (8,3):
+            case (8, 2):
+                break;
+            case (8, 3):
                 Console.WriteLine($"Started image taking.");
                 executeAction(request, cancelToken);
                 break;
@@ -204,7 +195,7 @@ internal class Payload
         int minValue = 5;
         int maxValue = 15;
         int randomNumber = random.Next(minValue, maxValue);
-        Thread.Sleep(randomNumber*1000); // To simulate time it takes for action [s] before sending completion TM
+        Thread.Sleep(randomNumber * 1000); // To simulate time it takes for action [s] before sending completion TM
         TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
         Console.WriteLine($"Image taking complete.");
         LoggingHandler(randomNumber, request);
@@ -257,11 +248,11 @@ internal class Payload
                     modeFlag = false;
                 }
 
-                    return modeFlag;
+                return modeFlag;
             default:
                 return false;
         }
-        
+
     }
 
     private static Report AcknowledgeReport(Request request)

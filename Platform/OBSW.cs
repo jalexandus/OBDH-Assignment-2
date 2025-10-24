@@ -1,21 +1,9 @@
 ﻿using Common;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.ComponentModel.Design;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
-using System.Collections.Generic;
-using System.ComponentModel.Design;
 
 namespace PayloadSW;
 
@@ -31,7 +19,7 @@ internal class PlatformOBC
     static long boot_time = 0; // [s] Unix timestamp (UTC)
 
     // ----- Packet counters -----
- 
+
     private static ushort recieveSequenceCount = 0;     // MCS -> OBC
     private static ushort transmitSequenceCount = 0;    // OBC -> MCS
 
@@ -109,7 +97,7 @@ internal class PlatformOBC
 
         Console.WriteLine($"Server IP address: {serverIpAddress.ToString()}"); // print the server ip address
 
-        ipEndPointSpaceLink = new(serverIpAddress, 11_000); 
+        ipEndPointSpaceLink = new(serverIpAddress, 11_000);
         ipEndPointBusController = new(serverIpAddress, 12_000); // Main spacecraft bus
 
         // Start the communication task with MCS
@@ -126,7 +114,7 @@ internal class PlatformOBC
         while (!cts.IsCancellationRequested)
         {
             // Check the scheduling queue
-            if(RecieveQueue.Count() > 0)
+            if (RecieveQueue.Count() > 0)
             {
                 Request nextRequest = RecieveQueue.Take(cts.Token);
                 RequestHandler(nextRequest, cts.Token);
@@ -158,7 +146,7 @@ internal class PlatformOBC
         switch (request.ApplicationID)
         {
             // Application: OBSW
-            case 0: 
+            case 0:
                 break;
 
             // Application: PayloadSW
@@ -169,6 +157,7 @@ internal class PlatformOBC
 
             case 1 when currentModeOBC == Mode.SAFE:
                 Console.WriteLine("Payload is OFF");
+                TransmitQueue.Add(FailedRoutingReport(), cancelToken);
                 return;
         }
 
@@ -193,7 +182,7 @@ internal class PlatformOBC
                 break;
 
             // Mode management
-            case (8,1) when request.ApplicationID == 0:
+            case (8, 1) when request.ApplicationID == 0:
                 newMode = (Mode)request.Data[0];
                 currentModeOBC = ModeSwitch(newMode);
                 if (newMode == Mode.SAFE)
@@ -203,20 +192,23 @@ internal class PlatformOBC
                 }
                 break;
 
-            case (8,1) when request.ApplicationID == 1:
+            case (8, 1) when request.ApplicationID == 1:
                 newMode = (Mode)request.Data[0];
                 currentModePayload = ModeSwitch(newMode);
                 break;
 
-            case (8,2) when request.ApplicationID == 0:
+            case (8, 2) when request.ApplicationID == 0:
                 TransmitQueue.Add(ModeReport(), cancelToken);
                 break;
 
-            case (9,4):
+            case (9, 4):
                 long newTime = BitConverter.ToInt64(request.Data);
                 DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
                 Console.WriteLine($"Set OBT to: {OBT.ToString()}");
                 SetCurrentTime(newTime);
+                break;
+            case (9, 5):
+                TransmitQueue.Add(OBTReport(), cancelToken);
                 break;
 
             // Scheduling commands
@@ -271,11 +263,12 @@ internal class PlatformOBC
                     RecieveQueue.Add(recievedRequest, cancelToken);
                     TransmitQueue.Add(AcknowledgeReport(), cancelToken);
                 }
-                else {
+                else
+                {
                     TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 }
 
-            }       
+            }
         }, cancelToken);
 
         // Empty transmit report queue
@@ -283,7 +276,7 @@ internal class PlatformOBC
         {
             while (!cancelToken.IsCancellationRequested)
             {
-                Report nextReport = TransmitQueue.Take(cancelToken);                
+                Report nextReport = TransmitQueue.Take(cancelToken);
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[OBC -> MCS]: {nextReport.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
@@ -325,7 +318,7 @@ internal class PlatformOBC
         }
 
 
-        
+
         // Empty outgoing command queue
         var sendTask = Task.Run(async () =>
         {
@@ -367,12 +360,17 @@ internal class PlatformOBC
     private static Report AcknowledgeReport()
     {
         // Create packet with service/subservice: Successful acceptance verification
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 1, Array.Empty<byte>() );
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 1, Array.Empty<byte>());
     }
     private static Report InvalidCommandReport()
     {
         // Create packet with service/subservice: Failed acceptance verification report
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 2, Array.Empty<byte>());
+    }
+    private static Report FailedRoutingReport()
+    {
+        // Create packet with service/subservice: Failed acceptance verification report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 5, Array.Empty<byte>());
     }
     private static Report CompletedCommandReport()
     {
@@ -397,7 +395,8 @@ internal class PlatformOBC
     {
         // Create a timer with a one second interval.
         onboardClock = new System.Timers.Timer(1000);
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => {
+        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) =>
+        {
             System.Threading.Interlocked.Increment(ref unix_time);
             System.Threading.Interlocked.Increment(ref boot_time);
         };
@@ -452,6 +451,11 @@ internal class PlatformOBC
         // Create packet with service/subservice: housekeeping parameter report
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
     }
+
+    private static Report OBTReport()
+    {
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 9, 6, Array.Empty<byte>());
+    }
     private static Mode ModeSwitch(Mode newMode)
     {
         switch (newMode)
@@ -466,7 +470,7 @@ internal class PlatformOBC
             default:
                 return Mode.SAFE;
         }
-        
+
     }
     private static void UpdateHousekeepingParameters()
     {
@@ -490,13 +494,13 @@ internal class PlatformOBC
         HousekeepingParameters[10].Value = transmitSequenceCount; // downlink_count [#]
 
         // ---- System Health ----
-        HousekeepingParameters[11].Value = (long) boot_time;        // uptime [s]
+        HousekeepingParameters[11].Value = (long)boot_time;        // uptime [s]
 
         // ---- Payload ----
-        HousekeepingParameters[12].Value = (byte) currentModePayload;   // payload_mode
+        HousekeepingParameters[12].Value = (byte)currentModePayload;   // payload_mode
 
         // ---- ADCS ----
-        HousekeepingParameters[13].Value = (byte) currentModeOBC;   // adcs_mode
+        HousekeepingParameters[13].Value = (byte)currentModeOBC;   // adcs_mode
     }
 }
 
