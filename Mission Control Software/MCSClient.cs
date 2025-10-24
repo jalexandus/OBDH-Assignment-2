@@ -401,7 +401,14 @@ internal class MCSCLient
     {
         payloadPacket.TimeStamp = GetUnixTime(scheduleTime);
 
-        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 11, 4, payloadPacket.Serialize());
+        var now = GetUnixTime();
+
+        if (payloadPacket.TimeStamp <= now)
+        {
+            throw new Exception("the requested scheduling time is in the past.");
+        }
+
+        return new Request(now, applicationID, transmitSequenceCount, 11, 4, payloadPacket.Serialize());
     }
 
     private static Request GetModeRequest(byte applicationID)
