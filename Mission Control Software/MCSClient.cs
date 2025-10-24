@@ -219,7 +219,7 @@ internal class MCSCLient
                     }
                     byte mode = (byte)parsedMode.GetHashCode();
                     // Send mode change request
-                    TX_Pckt = setMode(APID, mode);
+                    TX_Pckt = setModeRequest(APID, mode);
                     break;
                 }
                 else if (action == "get")
@@ -422,8 +422,20 @@ internal class MCSCLient
         return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
     }
 
+    private static Request getModeRequest(byte applicationID)
+    {
+        // Convert to Unix time in seconds
+        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        // Set service and subservice type
+        const byte serviceType = 8;
+        const byte serviceSubtype = 2;
+
+        // Encode message data;
+        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, Array.Empty<byte>());
+    }
     // Set mode
-    private static Request setMode(byte applicationID, byte mode)
+    private static Request setModeRequest(byte applicationID, byte mode)
     {
         // Convert to Unix time in seconds
         long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
@@ -439,18 +451,7 @@ internal class MCSCLient
     }
 
     // Retrieve current mode
-    private static Request getModeRequest(byte applicationID)
-    {
-        // Convert to Unix time in seconds
-        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
 
-        // Set service and subservice type
-        const byte serviceType = 8;
-        const byte serviceSubtype = 2;
-
-        // Encode message data;
-        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, Array.Empty<byte>());
-    }
 
     private static Request payloadAction(byte applicationID, byte action)
     {
