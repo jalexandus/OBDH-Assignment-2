@@ -125,22 +125,24 @@ internal class Payload
             case (2,1):
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string:" + message);
+                TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
                 break;
             // Mode management
             case (8,1):
                 Mode newMode = (Mode)request.Data[0];
-                ModeSwitch(newMode);
+                ModeSwitch(newMode, request);
+                TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
                 break;
             case (8,2):
                     break;
             case (8,3):
-                executeAction(request);
+                Console.WriteLine($"Started image taking.");
+                executeAction(request, cancelToken);
                 break;
             default:
-                // TransmitQueue.Add(InvalidCommandReport(), cancelToken);
+                TransmitQueue.Add(InvalidCommandReport(request), cancelToken);
                 return;
         }
-        // TransmitQueue.Add(CompletedCommandReport(), cancelToken);
     }
 
     private static async Task CommunicationSession(CancellationToken cancelToken)
@@ -169,7 +171,9 @@ internal class Payload
                 await handler.ReceiveAsync(buffer, SocketFlags.None);
                 Request recievedRequest = new Request(buffer);
                 RecieveQueue.Add(recievedRequest, cancelToken);
-                //TransmitQueue.Add(AcknowledgeReport(), cancelToken); // ADD NEW ACTION REPORT
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[OBC -> PL]: {recievedRequest.ToString()}");
+                Console.ForegroundColor = ConsoleColor.Cyan;
 
             }
         }, cancelToken);
@@ -182,9 +186,8 @@ internal class Payload
                 Report nextReport = TransmitQueue.Take(cancelToken);
                 await handler.SendAsync(nextReport.Serialize(), 0);
 
-                Console.WriteLine($"Sent acknowledgment: ");
-                Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine(nextReport.ToString());
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine($"[PL -> OBC]: {nextReport.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
             }
         }, cancelToken);
@@ -195,12 +198,15 @@ internal class Payload
         listener.Shutdown(SocketShutdown.Both);
     }
 
-    private static void executeAction(Request request)
+    private static void executeAction(Request request, CancellationToken cancelToken)
     {
         Random random = new Random();
         int minValue = 5;
         int maxValue = 15;
         int randomNumber = random.Next(minValue, maxValue);
+        Thread.Sleep(randomNumber*1000); // To simulate time it takes for action [s] before sending completion TM
+        TransmitQueue.Add(CompletedCommandReport(request), cancelToken);
+        Console.WriteLine($"Image taking complete.");
         LoggingHandler(randomNumber, request);
     }
 
@@ -214,7 +220,7 @@ internal class Payload
             using (StreamWriter sw = new StreamWriter(logFilePath, append: true))
             {
                 DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(request.TimeStamp);
-                sw.WriteLine(unixTime.ToString()+$": " + $"Time spent taking image: " + actionTime.ToString() + $" seconds");
+                sw.WriteLine(unixTime.ToString() + $"Time spent taking image: " + actionTime.ToString() + $" seconds");
             }
         }
         catch (Exception ex)
@@ -226,7 +232,7 @@ internal class Payload
 
     }
 
-    private static bool ModeSwitch(Mode newMode)
+    private static bool ModeSwitch(Mode newMode, Request request)
     {
         switch (newMode)
         {
@@ -238,15 +244,42 @@ internal class Payload
                 return modeFlag;
 
             case Mode.INERTIAL:
-                Console.WriteLine("Payload ON");
-                currentMode = newMode;
-                modeFlag = true;
+                if (request.ApplicationID == 1)
+                {
+                    Console.WriteLine("Payload ON");
+                    currentMode = newMode;
+                    modeFlag = true;
+                }
+                else
+                {
+                    Console.WriteLine("Payload OFF"); // OBC set to safe => Payload set to safe
+                    currentMode = Mode.SAFE;
+                    modeFlag = false;
+                }
 
-                return modeFlag;
+                    return modeFlag;
             default:
                 return false;
         }
         
+    }
+
+    private static Report AcknowledgeReport(Request request)
+    {
+        // Create packet with service/subservice: Successful acceptance verification
+        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 1, Array.Empty<byte>());
+    }
+
+    private static Report InvalidCommandReport(Request request)
+    {
+        // Create packet with service/subservice: Failed acceptance verification report
+        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 2, Array.Empty<byte>());
+    }
+
+    private static Report CompletedCommandReport(Request request)
+    {
+        // Create packet with service/subservice: Failed start of execution
+        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
 
 }

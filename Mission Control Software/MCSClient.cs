@@ -382,6 +382,17 @@ internal class MCSCLient
         byte[] data = Encoding.UTF8.GetBytes(message);
         return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
     }
+    private static Request CyclicHKEnableRequest(byte applicationID, bool enable)
+    {
+        // Set service and subservice type
+        const byte serviceType = 3;
+        const byte serviceSubtype = 5;
+
+        // Convert current time to Unix time in seconds
+        long unixSecondsCurrent = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+
+        return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, BitConverter.GetBytes(enable));
+    }
     private static Request UpdateOBTRequest(byte applicationID, DateTime newOBT)
     {
         // Set service and subservice type
@@ -485,22 +496,22 @@ internal class MCSCLient
         int startIndex = 0;
         // Mapping of ParameterID to label and unit
         Dictionary<byte, (string Label, string Unit)> paramInfo = new()
-    {
-        { 0x00, ("unix_time", "s") },
-        { 0x01, ("bus_voltage", "V") },
-        { 0x02, ("bus_current", "A") },
-        { 0x03, ("battery_voltage", "V") },
-        { 0x04, ("battery_current", "A") },
-        { 0x05, ("battery_temperature", "°C") },
-        { 0x06, ("obc_temperature", "°C") },
-        { 0x07, ("payload_temperature", "°C") },
-        { 0x08, ("eps_temperature", "°C") },
-        { 0x09, ("uplink_count", "#") },
-        { 0x0A, ("downlink_count", "#") },
-        { 0x0B, ("uptime", "s") },
-        { 0x0C, ("payload_mode", "") },
-        { 0x0D, ("adcs_mode", "") }
-    };
+        {
+            { 0x00, ("unix_time", "s") },
+            { 0x01, ("bus_voltage", "V") },
+            { 0x02, ("bus_current", "A") },
+            { 0x03, ("battery_voltage", "V") },
+            { 0x04, ("battery_current", "A") },
+            { 0x05, ("battery_temperature", "°C") },
+            { 0x06, ("obc_temperature", "°C") },
+            { 0x07, ("payload_temperature", "°C") },
+            { 0x08, ("eps_temperature", "°C") },
+            { 0x09, ("uplink_count", "#") },
+            { 0x0A, ("downlink_count", "#") },
+            { 0x0B, ("uptime", "s") },
+            { 0x0C, ("payload_mode", "") },
+            { 0x0D, ("adcs_mode", "") }
+        };
 
         while (startIndex < dataLength)
         {
