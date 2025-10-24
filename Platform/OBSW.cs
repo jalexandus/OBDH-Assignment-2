@@ -347,7 +347,7 @@ internal class PlatformOBC
 
     private static Report TelemetryReport()
     {
-
+        return null;
     }
 
     // ----------------- On-board functions -----------------

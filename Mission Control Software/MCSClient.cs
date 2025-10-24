@@ -178,10 +178,9 @@ internal class MCSCLient
                         throw new Exception("schedule requires <Application> <Command> (<Arguments>)");
 
                     Request request = CommandHandler(input);
-                    // Extract schedule time
-                    
 
-                    Console.WriteLine($"Input time to schedule comman for: ");
+                    // Extract schedule time
+                    Console.WriteLine($"Input time to schedule command for: ");
 
                     var culture = CultureInfo.CreateSpecificCulture("en-US");
                     DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
@@ -341,6 +340,11 @@ internal class MCSCLient
         long unixSecondsCurrent = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
 
         long unixSecondsSchedule = new DateTimeOffset(scheduleTime).ToUnixTimeSeconds();
+
+        if (unixSecondsSchedule <= unixSecondsCurrent)
+        {
+            throw new Exception("the requested scheduling time is in the past.");
+        }
 
         payloadPacket.TimeStamp = unixSecondsSchedule;
 
