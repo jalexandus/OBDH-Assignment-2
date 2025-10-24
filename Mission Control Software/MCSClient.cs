@@ -1,20 +1,9 @@
 ﻿using Common;
-using System;
 using System.Collections.Concurrent;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Drawing;
 using System.Globalization;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.Wasm;
 using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Mission_Control_Software;
 internal class MCSCLient
@@ -25,11 +14,16 @@ internal class MCSCLient
     private static BlockingCollection<Request> OutgoingQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
 
+    public enum Mode
+    {
+        SAFE = 0,
+        INERTIAL = 1,
+    };
     static async Task<int> Main(string[] args)
     {
         const string configFilePath = "config.txt";
         string serverIpAddressString;
-        
+
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
         Console.WriteLine("████████████████ ~ LTU Mission Control software ~ ████████████████");
         Console.WriteLine("██████████████████████████████████████████████████████████████████");
@@ -53,21 +47,15 @@ internal class MCSCLient
         // Get the localhost ip address
         var hostName = Dns.GetHostName();
         IPHostEntry localhost = Dns.GetHostEntry(hostName);
-        
+
         // This is the IP address of the local machine
         IPAddress localIpAddress = localhost.AddressList[0];
 
         // Server IP address
         IPAddress serverIpAddress;
-        if (serverIpAddressString == "localhost")
-        {
-            serverIpAddress = localIpAddress;
-        }
-        else
-        {
-            serverIpAddress = IPAddress.Parse(serverIpAddressString);
-        }
-            
+
+        serverIpAddress = serverIpAddressString == "localhost" ? localIpAddress : IPAddress.Parse(serverIpAddressString);
+
         Console.WriteLine("Client IP address: " + localIpAddress.ToString()); // print the local ip address
         Console.WriteLine("Server IP address: " + serverIpAddress.ToString()); // print the server ip address
 
@@ -87,11 +75,11 @@ internal class MCSCLient
             if (cmd.args.Count == 0) continue;
             else firstCommand = cmd.args.Peek();
 
-                
+
             if (firstCommand == "exit")
             {
                 cts.Cancel(); // Cancel the communcation task
-                continue;
+                break;
             }
             else
             {
@@ -136,38 +124,50 @@ internal class MCSCLient
 
         // Select command 
         if (input.args.Count == 0)
-            throw new Exception("Missing command after destination application.");
+            throw new Exception("Missing <command> after destination application.");
 
+        var culture = CultureInfo.CreateSpecificCulture("en-US");
         string command = input.args.Pop().ToLowerInvariant();
-        Request TX_Pckt;
+        Request TX_Pckt = null!;
 
         switch (command)
         {
             case "send":
                 {
-                    string message = string.Join(" ",input.args); // Combine remaining args
+                    string message = string.Join(" ", input.args); // Combine remaining args
                     message.Trim();
-                    TX_Pckt = SendString(APID, message);
+                    TX_Pckt = SendStringRequest(APID, message);
                     break;
                 }
 
-            case "update-obt":
+            case "obt" when APID == 0:
                 {
-                    if (input.args.Count == 0)
-                        throw new Exception("Missing time argument for update-obt.");
+                    if (!input.args.TryPop(out string? action)) throw new Exception("Action not found. Possible actions: set, get.");
+                    action.ToLowerInvariant();
 
-                    string arg = input.args.Peek().ToLowerInvariant();
-                    if (arg == "now")
+                    if (action == "set")
                     {
-                        TX_Pckt = UpdateOBT(APID, DateTime.UtcNow);
+                        if (input.args.Count == 0)
+                            throw new Exception("Missing <UTC time> argument for update-obt.");
+
+                        string arg = input.args.Peek().ToLowerInvariant();
+                        DateTime newOBT;
+                        if (arg == "now")
+                        {
+                            newOBT = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            // Reconstruct timestamp string
+                            string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
+                            newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeUniversal);
+                        }
+                        TX_Pckt = SetOBTRequest(APID, newOBT);
                     }
-                    else
+                    else if (action == "get")
                     {
-                        // Reconstruct timestamp string
-                        string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
-                        var culture = CultureInfo.CreateSpecificCulture("en-US");
-                        DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
-                        TX_Pckt = UpdateOBT(APID, newOBT);
+                        // Send mode get request
+                        TX_Pckt = GetOBTRequest(APID);
                     }
                     break;
                 }
@@ -175,19 +175,78 @@ internal class MCSCLient
             case "schedule":
                 {
                     if (input.args.Count < 2)
-                        throw new Exception("schedule requires <Application> <Command> (<Arguments>)");
+                        throw new Exception("schedule requires: <Application> <Command> (<Arguments>)");
 
                     Request request = CommandHandler(input);
 
-                    // Extract schedule time
+                    // Extract schedule time                    
                     Console.WriteLine($"Input time to schedule command for: ");
 
-                    var culture = CultureInfo.CreateSpecificCulture("en-US");
-                    DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
+                    DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeUniversal);
 
-                    TX_Pckt = Schedule(APID, scheduleTime, request);
+                    TX_Pckt = ScheduleRequest(APID, scheduleTime, request);
                     break;
                 }
+
+            case "hk":
+                {
+                    if (input.args.Count < 1)
+                        throw new Exception("hk requires <Application> <Command> (<ON/OFF>");
+
+                    string stateString = input.args.Pop().ToUpperInvariant();
+                    bool state;
+
+                    switch (stateString)
+                    {
+                        case "OFF":
+                            state = false;
+                            break;
+
+                        case "ON":
+                            state = true;
+                            break;
+                        default:
+                            throw new Exception($"Input is either 'ON' or 'OFF'");
+                    }
+                    TX_Pckt = CyclicHKEnableRequest(APID, state);
+                    break;
+                }
+
+            case "mode":
+                {
+                    string action = input.args.Pop().ToLowerInvariant();
+
+                    if (action == "set")
+                    {
+                        string? modeString = input.args.Pop();
+                        if (!Enum.TryParse<Mode>(modeString, true, out Mode parsedMode))
+                        {
+                            throw new Exception("Mode not found. Possible modes: safe, inertial.");
+                        }
+                        byte mode = (byte)parsedMode.GetHashCode();
+                        // Send mode change request
+                        TX_Pckt = SetModeRequest(APID, mode);
+                    }
+                    else if (action == "get")
+                    {
+                        // Send mode get request
+                        TX_Pckt = GetModeRequest(APID);
+                    }
+                    else
+                    {
+                        throw new Exception("Action not found. Possible actions: set, get.");
+                    }
+                    break;
+                }
+
+
+            case "take-image":
+                {
+                    byte action = 1;
+                    TX_Pckt = PayloadActionRequest(APID, action);
+                    break;
+                }
+
 
             default:
                 throw new Exception($"'{command}' is not a recognized command.");
@@ -273,82 +332,112 @@ internal class MCSCLient
                 break;
         }
         // Interpret based on Service Subtype (PUS Service 1)
-        switch (report.ServiceSubtype)
+        int serviceType = report.ServiceType;
+        int subtype = report.ServiceSubtype;
+        switch ((serviceType, subtype))
         {
-            case 1:
+            case (1, 1):
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[RX {source}] ACK: Command accepted successfully.");
+                Console.WriteLine($"[RX {source}] ACK: Command received successfully.");
                 break;
 
-            case 2:
+            case (1, 2):
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[RX {source}] NACK: Command rejected or invalid.");
                 break;
 
-            case 3:
+            case (1, 3):
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[RX {source}] INFO: Command execution started.");
                 break;
 
-            case 4:
+            case (1, 4):
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[RX {source}] DONE: Command execution completed successfully.");
                 break;
-
+            case (1, 5):
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[RX {source}] Failed routing verification report");
+                break;
+            case (3, 25):
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine($"[RX {source}] Housekeeping parameters report");
+                PrintParameters(report);
+                break;
+            case (9, 6):
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine($"[RX {source}] On-board time report");
+                Console.WriteLine("On-board time:" + PrintUnixTime(report.TimeStamp));
+                break;
             default:
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"[RX {source}] Unknown verification report (Subtype {report.ServiceSubtype}).");
+                Console.WriteLine($"[RX {source}] Unknown report (Type {serviceType}, Subtype {subtype}).");
                 break;
         }
 
         Console.ForegroundColor = ConsoleColor.White;
     }
-    private static Request SendString(byte applicationID, string message)
+    private static Request SendStringRequest(byte applicationID, string message)
     {
-        // Convert to Unix time in seconds
-        long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
-
-
-        // Set service and subservice type
-        const byte serviceType = 2;
-        const byte serviceSubtype = 1;
-
         // Encode message data
         byte[] data = Encoding.UTF8.GetBytes(message);
-        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 2, 1, data);
     }
-    private static Request UpdateOBT(byte applicationID, DateTime newOBT)
+    private static Request CyclicHKEnableRequest(byte applicationID, bool enable)
     {
-        // Set service and subservice type
-        const byte serviceType = 9;
-        const byte serviceSubtype = 4;
-
-        long unixSeconds = new DateTimeOffset(newOBT).ToUnixTimeSeconds();
-
-        byte[] data = BitConverter.GetBytes(unixSeconds);
-        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, data);
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 3, 5, BitConverter.GetBytes(enable));
     }
-
+    private static Request SetOBTRequest(byte applicationID, DateTime newOBT)
+    {
+        byte[] data = BitConverter.GetBytes(GetUnixTime(newOBT));
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 9, 4, data);
+    }
+    private static Request GetOBTRequest(byte applicationID)
+    {
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 9, 5, Array.Empty<byte>());
+    }
     //  Insert activities into the time-based schedule
-    private static Request Schedule(byte applicationID, DateTime scheduleTime, Request payloadPacket) // 
+    private static Request ScheduleRequest(byte applicationID, DateTime scheduleTime, Request payloadPacket) // 
     {
-        // Set service and subservice type
-        const byte serviceType = 11;
-        const byte serviceSubtype = 4;
+        payloadPacket.TimeStamp = GetUnixTime(scheduleTime);
 
-        // Convert current time to Unix time in seconds
-        long unixSecondsCurrent = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+        var now = GetUnixTime();
 
-        long unixSecondsSchedule = new DateTimeOffset(scheduleTime).ToUnixTimeSeconds();
-
-        if (unixSecondsSchedule <= unixSecondsCurrent)
+        if (payloadPacket.TimeStamp <= now)
         {
             throw new Exception("the requested scheduling time is in the past.");
         }
 
-        payloadPacket.TimeStamp = unixSecondsSchedule;
+        return new Request(now, applicationID, transmitSequenceCount, 11, 4, payloadPacket.Serialize());
+    }
 
-        return new Request(unixSecondsCurrent, applicationID, transmitSequenceCount, serviceType, serviceSubtype, payloadPacket.Serialize());
+    private static Request GetModeRequest(byte applicationID)
+    {
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 8, 2, Array.Empty<byte>());
+    }
+    private static long GetUnixTime()
+    {
+        return new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
+    }
+    private static long GetUnixTime(DateTime time)
+    {
+        return new DateTimeOffset(time).ToUnixTimeSeconds();
+    }
+    // Set mode
+    private static Request SetModeRequest(byte applicationID, byte mode)
+    {
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 8, 1, new byte[] { mode });
+    }
+
+    // Retrieve current mode
+
+
+    private static Request PayloadActionRequest(byte applicationID, byte action)
+    {
+        byte[] actionBytes = new byte[] { action };
+
+        // Encode message data;
+        return new Request(GetUnixTime(), applicationID, transmitSequenceCount, 8, 3, actionBytes);
     }
 
     private static void LoggingHandler(Report report)
@@ -370,5 +459,46 @@ internal class MCSCLient
             Console.ResetColor();
         }
 
+    }
+
+    private static void PrintParameters(Report report)
+    {
+        int dataLength = report.Data.Length;
+        int startIndex = 0;
+        // Mapping of ParameterID to label and unit
+        Dictionary<byte, (string Label, string Unit)> paramInfo = new()
+        {
+            { 0x00, ("unix_time", "s") },
+            { 0x01, ("bus_voltage", "V") },
+            { 0x02, ("bus_current", "A") },
+            { 0x03, ("battery_voltage", "V") },
+            { 0x04, ("battery_current", "A") },
+            { 0x05, ("battery_temperature", "°C") },
+            { 0x06, ("obc_temperature", "°C") },
+            { 0x07, ("payload_temperature", "°C") },
+            { 0x08, ("eps_temperature", "°C") },
+            { 0x09, ("uplink_count", "#") },
+            { 0x0A, ("downlink_count", "#") },
+            { 0x0B, ("uptime", "s") },
+            { 0x0C, ("payload_mode", "") },
+            { 0x0D, ("adcs_mode", "") }
+        };
+
+        // Read all parameters from data
+        while (startIndex < dataLength)
+        {
+            Common.Parameter param = new Common.Parameter(report.Data, startIndex);
+            startIndex += param.Length;
+
+            if (!paramInfo.TryGetValue(param.ID, out var info))
+                info = ($"ParameterID:{param.ID}", ""); // fallback if unknown
+
+            Console.WriteLine($"   {info.Label}: {param.Value} {info.Unit}");
+        }
+    }
+    private static string PrintUnixTime(long unix)
+    {
+        DateTimeOffset unixTime = DateTimeOffset.FromUnixTimeSeconds(unix);
+        return unixTime.ToUniversalTime().ToString();
     }
 }

@@ -1,69 +1,64 @@
 ﻿using Common;
-using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
-using System.Collections.Generic;
-using System.ComponentModel.Design;
 
 namespace PayloadSW;
 
-
-
 internal class PlatformOBC
 {
+    // ----- System timers -----
     private static System.Timers.Timer onboardClock;
+    private static System.Timers.Timer cyclicHKClock;
 
-    private struct Parameters
-    {
-        // ---- System Time ----
-        long unix_time;              // [s] Unix timestamp (UTC)
+    // -----  System time -----
 
-        // ---- Power ----
-        float bus_voltage;               // [V] Main power bus voltage
-        float bus_current;               // [A] Total current draw
-        float battery_voltage;           // [V]
-        float battery_current;           // [A]
-        float battery_temperature;       // [°C]
+    static long unix_time = 0; // [s] Unix timestamp (UTC)
+    static long boot_time = 0; // [s] Unix timestamp (UTC)
 
-        // ---- Thermal ----
-        float obc_temperature;           // [°C]
-        float payload_temperature;       // [°C]
-        float eps_temperature;           // [°C]
-
-        // ---- Communication ----
-        UInt16 uplink_count;           // [#] Commands received
-        UInt16 downlink_count;         // [#] Packets transmitted
-        byte last_command_status;    // 0 = OK, 1 = ERR, 2 = UNKNOWN
-        byte comm_status;            // Bit flags (bit0: TX on, bit1: RX on, etc.)
-
-        // ---- System Health ----
-        UInt32 uptime;                 // [s] Time since boot
-        UInt16 reset_count;            // [#] Number of system resets
-        byte last_reset_reason;      // Code: 0=power, 1=watchdog, 2=manual, etc.
-
-        // ---- Payload ----
-        byte payload_mode;           // Current payload mode/state
-        bool payload_status;         // Bit field for payload subsystems
-
-        // ---- ADCS ----
-        byte adcs_mode;
-    }
-
-    private static IPEndPoint? ipEndPointSpaceLink;
-    private static IPEndPoint? ipEndPointBusController;
+    // ----- Packet counters -----
 
     private static ushort recieveSequenceCount = 0;     // MCS -> OBC
     private static ushort transmitSequenceCount = 0;    // OBC -> MCS
+
+    //----- Housekeeping parameters -----
+
+    private static List<Common.Parameter> HousekeepingParameters = new List<Common.Parameter>
+    {
+        // ---- System Time ----
+        new Common.Parameter((byte)0x00, (long)0), // unix_time [s] Unix timestamp (UTC)
+
+        // ---- Power ----
+        new Common.Parameter((byte)0x01, (float)12.1f), // bus_voltage [V] Main power bus voltage
+        new Common.Parameter((byte)0x02, (float)0.0f),  // bus_current [A] Total current draw
+        new Common.Parameter((byte)0x03, (float)0.0f),  // battery_voltage [V]
+        new Common.Parameter((byte)0x04, (float)0.0f),  // battery_current [A]
+        new Common.Parameter((byte)0x05, (float)0.0f),  // battery_temperature [°C]
+
+        // ---- Thermal ----
+        new Common.Parameter((byte)0x06, (float)0.0f),  // obc_temperature [°C]
+        new Common.Parameter((byte)0x07, (float)0.0f),  // payload_temperature [°C]
+        new Common.Parameter((byte)0x08, (float)0.0f),  // eps_temperature [°C]
+
+        // ---- Communication ----
+        new Common.Parameter((byte)0x09, (ushort)0),   // uplink_count [#] Commands received
+        new Common.Parameter((byte)0x0A, (ushort)0),   // downlink_count [#] Packets transmitted
+
+        // ---- System Health ----
+        new Common.Parameter((byte)0x0B, (long)0),     // uptime [s] Time since boot
+
+        // ---- Payload ----
+        new Common.Parameter((byte)0x0C, (byte)0),     // payload_mode Current payload mode/state
+
+        // ---- ADCS ----
+        new Common.Parameter((byte)0x0D, (byte)0),     // adcs_mode
+    };
+
+    // ----- Queues ----
+    private static IPEndPoint? ipEndPointSpaceLink;
+    private static IPEndPoint? ipEndPointBusController;
 
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
@@ -73,7 +68,16 @@ internal class PlatformOBC
 
     private static PriorityQueue<Request, long> ScheduleQueue = new PriorityQueue<Request, long>();
 
-    static long unix_time = 0; // [s] Unix timestamp (UTC)
+
+    // ----- Mode variables -----
+    public enum Mode
+    {
+        SAFE = 0,
+        INERTIAL = 1,
+    };
+
+    static Mode currentModeOBC = Mode.SAFE;
+    static Mode currentModePayload = Mode.SAFE;
 
     static async Task<int> Main(string[] args)
     {
@@ -93,7 +97,7 @@ internal class PlatformOBC
 
         Console.WriteLine($"Server IP address: {serverIpAddress.ToString()}"); // print the server ip address
 
-        ipEndPointSpaceLink = new(serverIpAddress, 11_000); 
+        ipEndPointSpaceLink = new(serverIpAddress, 11_000);
         ipEndPointBusController = new(serverIpAddress, 12_000); // Main spacecraft bus
 
         // Start the communication task with MCS
@@ -103,12 +107,14 @@ internal class PlatformOBC
         // Start the communcation task with Payload
         var busCommTask = MainBusCommunicationSession(cts.Token);
 
+        InitializePeriodicTelemetry(cts.Token);
+
         // command interpreter 
         // Loops through the queue of received commands and executes the ones that are due.
         while (!cts.IsCancellationRequested)
         {
             // Check the scheduling queue
-            if(RecieveQueue.Count() > 0)
+            if (RecieveQueue.Count() > 0)
             {
                 Request nextRequest = RecieveQueue.Take(cts.Token);
                 RequestHandler(nextRequest, cts.Token);
@@ -140,51 +146,77 @@ internal class PlatformOBC
         switch (request.ApplicationID)
         {
             // Application: OBSW
-            case 0: 
+            case 0:
                 break;
 
             // Application: PayloadSW
-            case 1: 
+            case 1 when currentModeOBC != Mode.SAFE:
                 Console.WriteLine("Forwarding request to payload");
                 MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
+                return;
+
+            case 1 when currentModeOBC == Mode.SAFE:
+                Console.WriteLine("Payload is OFF");
+                TransmitQueue.Add(FailedRoutingReport(), cancelToken);
                 return;
         }
 
         // -------------------- Service/subservice --------------------
-
-        switch (request.ServiceType)
+        Mode newMode;
+        switch ((request.ServiceType, request.ServiceSubtype))
         {
             // Recieving a string 
-            case 2:
+            case (2, 1):
                 string message = Encoding.UTF8.GetString(request.Data, 0, request.Nbytes);
                 Console.WriteLine("Recieved string: " + message);
                 // CommandHandlerPayload(message); // Forward to payload request handler 
                 break;
 
-            // Time services 
-            case 9: 
-                if (request.ServiceSubtype == 4) // Set OBT
+            // Housekeeping
+            case (3, 5) when BitConverter.ToBoolean(request.Data, 0) == true:
+                StartPeriodicTelemetry(cancelToken);
+                break;
+
+            case (3, 5) when BitConverter.ToBoolean(request.Data, 0) == false:
+                StopPeriodicTelemetry(cancelToken);
+                break;
+
+            // Mode management
+            case (8, 1) when request.ApplicationID == 0:
+                newMode = (Mode)request.Data[0];
+                currentModeOBC = ModeSwitch(newMode);
+                if (newMode == Mode.SAFE)
                 {
-                    long newTime = BitConverter.ToInt64(request.Data);
-                    DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
-                    Console.WriteLine($"Set OBT to: {OBT.ToString()}");
-                    SetCurrentTime(newTime);
-                    break;
+                    MainBusOutgoingQueue.Add(request); // Forward to payload to set safe mode
+                    currentModePayload = Mode.SAFE;
                 }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+                break;
+
+            case (8, 1) when request.ApplicationID == 1:
+                newMode = (Mode)request.Data[0];
+                currentModePayload = ModeSwitch(newMode);
+                break;
+
+            case (8, 2) when request.ApplicationID == 0:
+                TransmitQueue.Add(ModeReport(), cancelToken);
+                break;
+
+            case (9, 4):
+                long newTime = BitConverter.ToInt64(request.Data);
+                DateTimeOffset OBT = DateTimeOffset.FromUnixTimeSeconds(newTime);
+                Console.WriteLine($"Set OBT to: {OBT.ToString()}");
+                SetCurrentTime(newTime);
+                break;
+            case (9, 5):
+                TransmitQueue.Add(OBTReport(), cancelToken);
+                break;
 
             // Scheduling commands
-            case 11:
-                if (request.ServiceSubtype == 4)
-                {
-                    Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
-                    ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
-                    Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
-                    break;
-                }
-                else TransmitQueue.Add(InvalidCommandReport(), cancelToken);
-                return;
+            case (11, 4):
+                Request timeScheduledRequest = new Request(request.Data); // De-serialize the scheduler packet payload data
+                ScheduleQueue.Enqueue(timeScheduledRequest, timeScheduledRequest.TimeStamp); // Enqueue the time-scheduled command based on the timestamp
+                Console.WriteLine($"Scheduled TC: {timeScheduledRequest.ToString()}");
+                break;
 
             // Default send InvalidCommandReport
             default:
@@ -192,11 +224,6 @@ internal class PlatformOBC
                 return;
         }
         TransmitQueue.Add(CompletedCommandReport(), cancelToken);
-    }
-
-    private static void RoutingHandler(Request request)
-    {
-
     }
 
     private static async Task CommunicationSession(CancellationToken cancelToken)
@@ -225,7 +252,7 @@ internal class PlatformOBC
                 Request recievedRequest = new Request(buffer);
 
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine($"[RX]: {recievedRequest.ToString()}");
+                Console.WriteLine($"[MCS -> OBC]: {recievedRequest.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
 
                 // Check sequence count
@@ -236,11 +263,12 @@ internal class PlatformOBC
                     RecieveQueue.Add(recievedRequest, cancelToken);
                     TransmitQueue.Add(AcknowledgeReport(), cancelToken);
                 }
-                else {
+                else
+                {
                     TransmitQueue.Add(InvalidCommandReport(), cancelToken);
                 }
 
-            }       
+            }
         }, cancelToken);
 
         // Empty transmit report queue
@@ -248,9 +276,9 @@ internal class PlatformOBC
         {
             while (!cancelToken.IsCancellationRequested)
             {
-                Report nextReport = TransmitQueue.Take(cancelToken);                
+                Report nextReport = TransmitQueue.Take(cancelToken);
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[TX]: {nextReport.ToString()}");
+                Console.WriteLine($"[OBC -> MCS]: {nextReport.ToString()}");
                 Console.ForegroundColor = ConsoleColor.White;
 
                 await handler.SendAsync(nextReport.Serialize(), 0);
@@ -290,7 +318,7 @@ internal class PlatformOBC
         }
 
 
-        
+
         // Empty outgoing command queue
         var sendTask = Task.Run(async () =>
         {
@@ -332,12 +360,17 @@ internal class PlatformOBC
     private static Report AcknowledgeReport()
     {
         // Create packet with service/subservice: Successful acceptance verification
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 1, Array.Empty<byte>() );
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 1, Array.Empty<byte>());
     }
     private static Report InvalidCommandReport()
     {
         // Create packet with service/subservice: Failed acceptance verification report
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 2, Array.Empty<byte>());
+    }
+    private static Report FailedRoutingReport()
+    {
+        // Create packet with service/subservice: Failed acceptance verification report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 5, Array.Empty<byte>());
     }
     private static Report CompletedCommandReport()
     {
@@ -345,9 +378,10 @@ internal class PlatformOBC
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
 
-    private static Report TelemetryReport()
+    private static Report InvalidModeChangeReport()
     {
-        return null;
+        // Create packet with service/subservice: Failed start of execution
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 8, 3, Array.Empty<byte>());
     }
 
     // ----------------- On-board functions -----------------
@@ -359,26 +393,114 @@ internal class PlatformOBC
     // Based on the following example: https://learn.microsoft.com/en-us/dotnet/api/system.timers.timer?view=net-9.0
     private static void StartClock()
     {
-        // Create a timer with a two second interval.
+        // Create a timer with a one second interval.
         onboardClock = new System.Timers.Timer(1000);
-        // Hook up the Elapsed event for the timer. 
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time);};
+        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) =>
+        {
+            System.Threading.Interlocked.Increment(ref unix_time);
+            System.Threading.Interlocked.Increment(ref boot_time);
+        };
+        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time); };
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
     }
 
-    private static void StartPeriodicTelemetry(int period)
+    private static byte[] SerializeParameterList(List<Common.Parameter> parameterList)
     {
-        // Create a timer with a two second interval.
-        onboardClock = new System.Timers.Timer(period);
-        // Hook up the Elapsed event for the timer. 
-        onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { EventTelemetry(); };
-        onboardClock.AutoReset = true;
-        onboardClock.Enabled = true;
-    }
-    private static void EventTelemetry()
-    {
+        List<byte> buffer = new List<byte>();
 
+        foreach (Common.Parameter param in parameterList)
+        {
+            buffer.AddRange(param.Serialize());
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static void InitializePeriodicTelemetry(CancellationToken clt)
+    {
+        // Create a timer with a ten second interval.
+        cyclicHKClock = new System.Timers.Timer(10000);
+        // Hook up the Elapsed event for the timer. 
+        cyclicHKClock.Elapsed += (Object source, ElapsedEventArgs e) => { TransmitQueue.Add(TelemetryReport(), clt); };
+        cyclicHKClock.AutoReset = true;
+
+    }
+
+    private static void StartPeriodicTelemetry(CancellationToken clt)
+    {
+        cyclicHKClock.Enabled = true;
+    }
+    private static void StopPeriodicTelemetry(CancellationToken clt)
+    {
+        cyclicHKClock.Enabled = false;
+    }
+    private static Report TelemetryReport()
+    {
+        UpdateHousekeepingParameters();
+        byte[] data = SerializeParameterList(HousekeepingParameters);
+        // Create packet with service/subservice: housekeeping parameter report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
+    }
+
+    private static Report ModeReport()
+    {
+        UpdateHousekeepingParameters();
+        List<Common.Parameter> modeParams = new List<Common.Parameter> { HousekeepingParameters[12], HousekeepingParameters[13] };
+        byte[] data = SerializeParameterList(modeParams);
+        // Create packet with service/subservice: housekeeping parameter report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
+    }
+
+    private static Report OBTReport()
+    {
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 9, 6, Array.Empty<byte>());
+    }
+    private static Mode ModeSwitch(Mode newMode)
+    {
+        switch (newMode)
+        {
+            case Mode.SAFE:
+                Console.WriteLine("Mode set to: SAFE");
+                return Mode.SAFE;
+
+            case Mode.INERTIAL:
+                Console.WriteLine("Mode set to: INERTIAL");
+                return Mode.INERTIAL;
+            default:
+                return Mode.SAFE;
+        }
+
+    }
+    private static void UpdateHousekeepingParameters()
+    {
+        // ---- System Time ----
+        HousekeepingParameters[0].Value = GetCurrentTime(); // unix_time [s]
+
+        // ---- Power ----
+        HousekeepingParameters[1].Value = 3.305f;  // bus_voltage [V]
+        HousekeepingParameters[2].Value = 23.01f;  // bus_current [A]
+        HousekeepingParameters[3].Value = 11.7f;   // battery_voltage [V]
+        HousekeepingParameters[4].Value = 8.2f;    // battery_current [A]
+        HousekeepingParameters[5].Value = 17.9f;   // battery_temperature [°C]
+
+        // ---- Thermal ----
+        HousekeepingParameters[6].Value = 63.7f;   // obc_temperature [°C]
+        HousekeepingParameters[7].Value = 11.1f;   // payload_temperature [°C]
+        HousekeepingParameters[8].Value = 0.0f;    // eps_temperature [°C]
+
+        // ---- Communication ----
+        HousekeepingParameters[9].Value = recieveSequenceCount; // uplink_count [#]
+        HousekeepingParameters[10].Value = transmitSequenceCount; // downlink_count [#]
+
+        // ---- System Health ----
+        HousekeepingParameters[11].Value = (long)boot_time;        // uptime [s]
+
+        // ---- Payload ----
+        HousekeepingParameters[12].Value = (byte)currentModePayload;   // payload_mode
+
+        // ---- ADCS ----
+        HousekeepingParameters[13].Value = (byte)currentModeOBC;   // adcs_mode
     }
 }
 
