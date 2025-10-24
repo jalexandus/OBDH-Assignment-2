@@ -21,12 +21,21 @@ namespace PayloadSW;
 
 internal class PlatformOBC
 {
+    // ----- System timers -----
     private static System.Timers.Timer onboardClock;
-    public enum Mode
-    {
-        SAFE = 0,
-        INERTIAL = 1,        
-    };
+    private static System.Timers.Timer cyclicHKClock;
+
+    // -----  System time -----
+
+    static long unix_time = 0; // [s] Unix timestamp (UTC)
+    static long boot_time = 0; // [s] Unix timestamp (UTC)
+
+    // ----- Packet counters -----
+ 
+    private static ushort recieveSequenceCount = 0;     // MCS -> OBC
+    private static ushort transmitSequenceCount = 0;    // OBC -> MCS
+
+    //----- Housekeeping parameters -----
 
     private static List<Common.Parameter> HousekeepingParameters = new List<Common.Parameter>
     {
@@ -59,11 +68,9 @@ internal class PlatformOBC
         new Common.Parameter((byte)0x0D, (byte)0),     // adcs_mode
     };
 
+    // ----- Queues ----
     private static IPEndPoint? ipEndPointSpaceLink;
     private static IPEndPoint? ipEndPointBusController;
-
-    private static ushort recieveSequenceCount = 0;     // MCS -> OBC
-    private static ushort transmitSequenceCount = 0;    // OBC -> MCS
 
     private static BlockingCollection<Report> TransmitQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 command packets queue
     private static BlockingCollection<Request> RecieveQueue = new BlockingCollection<Request>(new ConcurrentQueue<Request>(), 100); // Maximum 100 command packets queue
@@ -73,8 +80,13 @@ internal class PlatformOBC
 
     private static PriorityQueue<Request, long> ScheduleQueue = new PriorityQueue<Request, long>();
 
-    static long unix_time = 0; // [s] Unix timestamp (UTC)
-    static long boot_time = 0; // [s] Unix timestamp (UTC)
+
+    // ----- Mode variables -----
+    public enum Mode
+    {
+        SAFE = 0,
+        INERTIAL = 1,
+    };
 
     static Mode currentModeOBC = Mode.SAFE;
     static Mode currentModePayload = Mode.SAFE;
@@ -106,6 +118,8 @@ internal class PlatformOBC
 
         // Start the communcation task with Payload
         var busCommTask = MainBusCommunicationSession(cts.Token);
+
+        InitializePeriodicTelemetry(cts.Token);
 
         // command interpreter 
         // Loops through the queue of received commands and executes the ones that are due.
@@ -148,18 +162,14 @@ internal class PlatformOBC
                 break;
 
             // Application: PayloadSW
-            case 1: 
+            case 1 when currentModeOBC != Mode.SAFE:
                 Console.WriteLine("Forwarding request to payload");
-                if (currentModeOBC == Mode.INERTIAL)
-                {
-                    MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
-                    return;
-                }
-                else
-                {
-                    Console.WriteLine("Payload is OFF");
-                    return;
-                } 
+                MainBusOutgoingQueue.Add(request, cancelToken); // Forward to OBC-Payload transmit queue
+                return;
+
+            case 1 when currentModeOBC == Mode.SAFE:
+                Console.WriteLine("Payload is OFF");
+                return;
         }
 
         // -------------------- Service/subservice --------------------
@@ -179,7 +189,7 @@ internal class PlatformOBC
                 break;
 
             case (3, 5) when BitConverter.ToBoolean(request.Data, 0) == false:
-                // Turn off cyclic housekeeping
+                StopPeriodicTelemetry(cancelToken);
                 break;
 
             // Mode management
@@ -199,9 +209,7 @@ internal class PlatformOBC
                 break;
 
             case (8,2) when request.ApplicationID == 0:
-                break;
-
-            case (8, 2) when request.ApplicationID == 1:
+                TransmitQueue.Add(ModeReport(), cancelToken);
                 break;
 
             case (9,4):
@@ -374,10 +382,6 @@ internal class PlatformOBC
 
     private static Report InvalidModeChangeReport()
     {
-        UpdateHousekeepingParameters();
-        byte[] data = SerializeParameterList();
-        // Create packet with service/subservice: housekeeping parameter report
-        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
         // Create packet with service/subservice: Failed start of execution
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 8, 3, Array.Empty<byte>());
     }
@@ -396,18 +400,17 @@ internal class PlatformOBC
         onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => {
             System.Threading.Interlocked.Increment(ref unix_time);
             System.Threading.Interlocked.Increment(ref boot_time);
-
         };
         onboardClock.Elapsed += (Object source, ElapsedEventArgs e) => { System.Threading.Interlocked.Increment(ref unix_time); };
         onboardClock.AutoReset = true;
         onboardClock.Enabled = true;
     }
 
-    private static byte[] SerializeParameterList()
+    private static byte[] SerializeParameterList(List<Common.Parameter> parameterList)
     {
         List<byte> buffer = new List<byte>();
 
-        foreach (Common.Parameter param in HousekeepingParameters)
+        foreach (Common.Parameter param in parameterList)
         {
             buffer.AddRange(param.Serialize());
         }
@@ -415,19 +418,37 @@ internal class PlatformOBC
         return buffer.ToArray();
     }
 
-    private static void StartPeriodicTelemetry(CancellationToken clt)
+    private static void InitializePeriodicTelemetry(CancellationToken clt)
     {
         // Create a timer with a ten second interval.
-        System.Timers.Timer cyclicHKClock = new System.Timers.Timer(10000);
+        cyclicHKClock = new System.Timers.Timer(10000);
         // Hook up the Elapsed event for the timer. 
         cyclicHKClock.Elapsed += (Object source, ElapsedEventArgs e) => { TransmitQueue.Add(TelemetryReport(), clt); };
         cyclicHKClock.AutoReset = true;
+
+    }
+
+    private static void StartPeriodicTelemetry(CancellationToken clt)
+    {
         cyclicHKClock.Enabled = true;
+    }
+    private static void StopPeriodicTelemetry(CancellationToken clt)
+    {
+        cyclicHKClock.Enabled = false;
     }
     private static Report TelemetryReport()
     {
         UpdateHousekeepingParameters();
-        byte[] data = SerializeParameterList();
+        byte[] data = SerializeParameterList(HousekeepingParameters);
+        // Create packet with service/subservice: housekeeping parameter report
+        return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
+    }
+
+    private static Report ModeReport()
+    {
+        UpdateHousekeepingParameters();
+        List<Common.Parameter> modeParams = new List<Common.Parameter> { HousekeepingParameters[12], HousekeepingParameters[13] };
+        byte[] data = SerializeParameterList(modeParams);
         // Create packet with service/subservice: housekeeping parameter report
         return new Report(GetCurrentTime(), 0, transmitSequenceCount, 3, 25, data);
     }
@@ -472,10 +493,10 @@ internal class PlatformOBC
         HousekeepingParameters[11].Value = (long) boot_time;        // uptime [s]
 
         // ---- Payload ----
-        HousekeepingParameters[12].Value = (byte)0;   // payload_mode
+        HousekeepingParameters[12].Value = (byte) currentModePayload;   // payload_mode
 
         // ---- ADCS ----
-        HousekeepingParameters[13].Value = (byte)0;   // adcs_mode
+        HousekeepingParameters[13].Value = (byte) currentModeOBC;   // adcs_mode
     }
 }
 

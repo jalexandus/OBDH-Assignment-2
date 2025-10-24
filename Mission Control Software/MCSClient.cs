@@ -27,10 +27,10 @@ internal class MCSCLient
     private static BlockingCollection<Report> IncomingQueue = new BlockingCollection<Report>(new ConcurrentQueue<Report>(), 100); // Maximum 100 recieved telemetry packets in queue
 
     public enum Mode
-        {
-          SAFE = 0,
-          INERTIAL = 1,
-        };
+    {
+        SAFE = 0,
+        INERTIAL = 1,
+    };
     static async Task<int> Main(string[] args)
     {
         const string configFilePath = "config.txt";
@@ -65,14 +65,8 @@ internal class MCSCLient
 
         // Server IP address
         IPAddress serverIpAddress;
-        if (serverIpAddressString == "localhost")
-        {
-            serverIpAddress = localIpAddress;
-        }
-        else
-        {
-            serverIpAddress = IPAddress.Parse(serverIpAddressString);
-        }
+
+        serverIpAddress = serverIpAddressString == "localhost" ? localIpAddress : IPAddress.Parse(serverIpAddressString);
 
         Console.WriteLine("Client IP address: " + localIpAddress.ToString()); // print the local ip address
         Console.WriteLine("Server IP address: " + serverIpAddress.ToString()); // print the server ip address
@@ -97,7 +91,7 @@ internal class MCSCLient
             if (firstCommand == "exit")
             {
                 cts.Cancel(); // Cancel the communcation task
-                continue;
+                break;
             }
             else
             {
@@ -161,17 +155,18 @@ internal class MCSCLient
                     throw new Exception("Missing <UTC time> argument for update-obt.");
 
                 string arg = input.args.Peek().ToLowerInvariant();
+                DateTime newOBT;
                 if (arg == "now")
                 {
-                    DateTime newOBT = DateTime.UtcNow;
+                    newOBT = DateTime.UtcNow;
                 }
                 else
                 {
                     // Reconstruct timestamp string
                     string timeString = (input.args.Count > 0 ? string.Join(" ", input.args.ToArray()) : " ");
-                    DateTime newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeLocal);
+                    newOBT = DateTime.Parse(timeString, culture, DateTimeStyles.AssumeUniversal);
                 }
-                TX_Pckt = UpdateOBTRequest(APID, DateTime.UtcNow);
+                TX_Pckt = UpdateOBTRequest(APID, newOBT);
                 break;
 
             case "schedule":
@@ -183,7 +178,7 @@ internal class MCSCLient
                 // Extract schedule time                    
                 Console.WriteLine($"Input time to schedule command for: ");
 
-                DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeLocal);
+                DateTime scheduleTime = DateTime.Parse(Console.ReadLine(), culture, DateTimeStyles.AssumeUniversal);
 
                 TX_Pckt = ScheduleRequest(APID, scheduleTime, request);
                 break;
@@ -191,6 +186,7 @@ internal class MCSCLient
             case "hk":
                 if (input.args.Count < 1)
                     throw new Exception("hk requires <Application> <Command> (<ON/OFF>");
+
                 string stateString = input.args.Pop().ToUpperInvariant();
                 bool state;
 
@@ -210,39 +206,43 @@ internal class MCSCLient
                 break;
 
             case "mode":
+            {
+                string action = input.args.Pop().ToLowerInvariant();
+                
+
+                if (action == "set")
                 {
-                    string action = input.args.Pop().ToLowerInvariant();
                     string? modeString = input.args.Pop();
                     if (!Enum.TryParse<Mode>(modeString, true, out Mode parsedMode))
                     {
                         throw new Exception("Mode not found. Possible modes: safe, inertial.");
                     }
                     byte mode = (byte)parsedMode.GetHashCode();
-
-                    if (action == "set")
-                    {
-                        // Send mode change request
-                        TX_Pckt = setMode(APID, mode);
-                        break;
-                    }
-                    else if (action == "get")
-                    {
-                        // Send mode get request
-                        TX_Pckt = getMode(APID, mode);
-                        break;
-                    }
-                    else
-                    {
-                        throw new Exception("Action not found. Possible actions: set, get.");
-                    }
-                    
-                }
-            case "take-image":
-                {
-                    byte action = 1;
-                    TX_Pckt = payloadAction(APID, action);
+                    // Send mode change request
+                    TX_Pckt = setMode(APID, mode);
                     break;
                 }
+                else if (action == "get")
+                {
+                    // Send mode get request
+                    TX_Pckt = getModeRequest(APID);
+                    break;
+                }
+                else
+                {
+                    throw new Exception("Action not found. Possible actions: set, get.");
+                }
+                break;
+            }
+                
+
+            case "take-image":
+            {
+                byte action = 1;
+                TX_Pckt = payloadAction(APID, action);
+                break;
+            }
+                
 
             default:
                 throw new Exception($"'{command}' is not a recognized command.");
@@ -439,19 +439,17 @@ internal class MCSCLient
     }
 
     // Retrieve current mode
-    private static Request getMode(byte applicationID, byte mode)
+    private static Request getModeRequest(byte applicationID)
     {
         // Convert to Unix time in seconds
         long unixSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds();
-
-        byte[] modeBytes = new byte[] {mode};
 
         // Set service and subservice type
         const byte serviceType = 8;
         const byte serviceSubtype = 2;
 
         // Encode message data;
-        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, modeBytes);
+        return new Request(unixSeconds, applicationID, transmitSequenceCount, serviceType, serviceSubtype, Array.Empty<byte>());
     }
 
     private static Request payloadAction(byte applicationID, byte action)
@@ -513,6 +511,7 @@ internal class MCSCLient
             { 0x0D, ("adcs_mode", "") }
         };
 
+        // Read all parameters from data
         while (startIndex < dataLength)
         {
             Common.Parameter param = new Common.Parameter(report.Data, startIndex);

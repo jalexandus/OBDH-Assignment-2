@@ -267,19 +267,19 @@ internal class Payload
     private static Report AcknowledgeReport(Request request)
     {
         // Create packet with service/subservice: Successful acceptance verification
-        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 1, Array.Empty<byte>());
+        return new Report(request.TimeStamp, 1, transmitSequenceCount, 1, 1, Array.Empty<byte>());
     }
 
     private static Report InvalidCommandReport(Request request)
     {
         // Create packet with service/subservice: Failed acceptance verification report
-        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 2, Array.Empty<byte>());
+        return new Report(request.TimeStamp, 1, transmitSequenceCount, 1, 2, Array.Empty<byte>());
     }
 
     private static Report CompletedCommandReport(Request request)
     {
         // Create packet with service/subservice: Failed start of execution
-        return new Report(request.TimeStamp, 0, transmitSequenceCount, 1, 4, Array.Empty<byte>());
+        return new Report(request.TimeStamp, 1, transmitSequenceCount, 1, 4, Array.Empty<byte>());
     }
 
 }
